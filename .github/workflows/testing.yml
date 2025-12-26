@@ -1,0 +1,33 @@
+name: Run tests
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Debug file structure
+        run: |
+            pwd
+            ls -la
+            find . -name "*.csproj" -type f
+      - name: Restore
+        run: dotnet restore ./GatewayService/GatewayService.csproj
+
+
+
+      - name: Build
+        run: dotnet build ./GatewayService/GatewayService.csproj --configuration Release --no-restore
+
+
+      - name: Test
+        run: dotnet test ./Lab_2_Tests/Lab_2_Tests.csproj --logger "console;verbosity=normal"

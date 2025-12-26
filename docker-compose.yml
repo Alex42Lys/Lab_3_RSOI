@@ -13,8 +13,68 @@ services:
       - ./postgres/:/docker-entrypoint-initdb.d/
     ports:
       - "5432:5432"
+    command: >
+      bash -c "
+        docker-entrypoint.sh postgres &
+        sleep 10 &&
+        psql -U postgres -d reservations -f /docker-entrypoint-initdb.d/20-reservations.sql &&
+        psql -U postgres -d library -f /docker-entrypoint-initdb.d/30-library.sql &&
+        psql -U postgres -d rating -f /docker-entrypoint-initdb.d/40-rating.sql &&
+        docker run -it --rm --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:4-management
 
-# TODO добавить сервисы
+        wait
+      "
+  reservation:
+    build:
+      context: ./ReservationService
+      dockerfile: Dockerfile
+    ports:
+      - "8070:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Server=postgres;Port=5432;Database=reservations;Username=postgres;Password=postgres;
+    depends_on:
+      - postgres
+
+  library:
+    build:
+      context: ./LibraryService
+      dockerfile: Dockerfile
+    ports:
+      - "8060:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Server=postgres;Port=5432;Username=postgres;Password=postgres;Database=libraries;
+    depends_on:
+      - postgres
+
+  rating:
+    build:
+      context: ./RatingService
+      dockerfile: Dockerfile
+    ports:
+      - "8050:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Server=postgres;Port=5432;Database=ratings;Username=postgres;Password=postgres;
+    depends_on:
+      - postgres
+
+  gateway:
+    build:
+      context: ./GatewayService
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - LibraryService__BaseUrl=http://library:8080/
+      - RatingService__BaseUrl=http://rating:8080/
+      - ReservationService__BaseUrl=http://reservation:8080/
+    depends_on:
+      - reservation  
+      - rating
+      - library
 
 volumes:
   db-data:
