@@ -38,7 +38,7 @@ jobs:
         run: ./scripts/test-script.sh
         env:
           VARIANT: v4
-          SERVICE_NAME: GatewayService
+          SERVICE_NAME: Gateway
           PORT_NUMBER: 8080
 
       - uses: education/autograding@v1
@@ -54,22 +54,6 @@ jobs:
           user_column: 'D'
           column_offset: 'F'
           mark: "'+"
-
-      - name: Get Gateway logs
-        if: always()  
-        run: docker compose logs gateway
-
-      - name: Get Library logs  
-        if: always()
-        run: docker compose logs library
-
-      - name: Get postgres logs  
-        if: always()
-        run: docker compose logs postgres
-        
-      - name: Get all services logs
-        if: always()
-        run: docker compose logs
 
       - name: Stop containers
         if: always()
