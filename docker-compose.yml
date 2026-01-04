@@ -13,17 +13,6 @@ services:
       - ./postgres/:/docker-entrypoint-initdb.d/
     ports:
       - "5432:5432"
-    command: >
-      bash -c "
-        docker-entrypoint.sh postgres &
-        sleep 10 &&
-        psql -U postgres -d reservations -f /docker-entrypoint-initdb.d/20-reservations.sql &&
-        psql -U postgres -d library -f /docker-entrypoint-initdb.d/30-library.sql &&
-        psql -U postgres -d rating -f /docker-entrypoint-initdb.d/40-rating.sql &&
-        docker run -it --rm --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:4-management
-
-        wait
-      "
   reservation:
     build:
       context: ./ReservationService
