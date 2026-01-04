@@ -38,7 +38,7 @@ jobs:
         run: ./scripts/test-script.sh
         env:
           VARIANT: v4
-          SERVICE_NAME: Gateway
+          SERVICE_NAME: lab_3_rsoi-gateway-1
           PORT_NUMBER: 8080
 
       - uses: education/autograding@v1
