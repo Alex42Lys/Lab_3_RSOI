@@ -654,12 +654,13 @@ namespace GatewayService.Controllers
                 {
 
                 }
+                usr = username.ToString();
+                d = deltaRating;
                 url = $"http://rating:8080/Rating/changeRating?delta={deltaRating}";
                 var re = new HttpRequestMessage(HttpMethod.Post, url);
                 re.Headers.Add("X-User-Name", username.ToString());
                 var rrp = await _httpClient.SendAsync(re);
-                usr = username.ToString();
-                d = deltaRating;
+
                 _circuitBreaker.Reset(reservationService);
                 _circuitBreaker.Reset(ratingService);
                 _circuitBreaker.Reset(libraryService);
