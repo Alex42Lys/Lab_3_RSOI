@@ -140,56 +140,66 @@ namespace GatewayService.Controllers
 
         }
 
-            [HttpGet("rating")]
-            [Produces("application/json")] // Явно указываем, что метод возвращает JSON
-
-            public async Task<ActionResult> GetUserRating()
-            {
-                const string serviceName = "RatingService";
+        [HttpGet("rating")]
+        [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+        [Produces("application/json")]
+        public async Task<ActionResult> GetUserRating()
+        {
+            const string serviceName = "RatingService";
 
             if (!_circuitBreaker.HasTimeOutPassed(serviceName))
             {
-                return StatusCode(503, "Rating service is temporarily unavailable");
+                return StatusCode(503, new ErrorResponse
+                {
+                    Message = "Bonus Service unavailable"
+                });
             }
 
             try
+            {
+                if (!Request.Headers.TryGetValue("X-User-Name", out var username))
                 {
-                    if (!Request.Headers.TryGetValue("X-User-Name", out var username))
+                    return BadRequest(new ErrorResponse
                     {
-                        return BadRequest("X-User-Name header is required");
-                    }
+                        Message = "X-User-Name header is required"
+                    });
+                }
 
-                    var url = "http://rating:8080/Rating/rating";
-                    var request = new HttpRequestMessage(HttpMethod.Get, url);
-                    request.Headers.Add("X-User-Name", username.ToString());
+                var url = "http://rating:8080/Rating/rating";
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("X-User-Name", username.ToString());
 
-                    var response = await _httpClient.SendAsync(request);
+                var response = await _httpClient.SendAsync(request);
 
                 if (!response.IsSuccessStatusCode)
                 {
                     _circuitBreaker.AddRequest(serviceName);
-                    return StatusCode(503, "Error fetching rating");
+                    return StatusCode(503, new ErrorResponse
+                    {
+                        Message = "Bonus Service unavailable"
+                    });
                 }
 
                 var content = await response.Content.ReadAsStringAsync();
-                    var options = new JsonSerializerOptions
-                    {
-                        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                        PropertyNameCaseInsensitive = true
-                    };
-
-                    var ratingResponse = JsonSerializer.Deserialize<UserRatingResponse>(content, options);
-                    _circuitBreaker.Reset(serviceName);
-                    return Ok(ratingResponse);
-                }
-                catch (HttpRequestException ex)
+                var options = new JsonSerializerOptions
                 {
-                   _circuitBreaker.AddRequest(serviceName);
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                    PropertyNameCaseInsensitive = true
+                };
 
-                    return StatusCode(503, "Bonuse service unavailable");
-                }
-
+                var ratingResponse = JsonSerializer.Deserialize<UserRatingResponse>(content, options);
+                _circuitBreaker.Reset(serviceName);
+                return Ok(ratingResponse);
             }
+            catch (HttpRequestException ex)
+            {
+                _circuitBreaker.AddRequest(serviceName);
+                return StatusCode(503, new ErrorResponse
+                {
+                    Message = "Bonus Service unavailable"
+                });
+            }
+        }
 
         [HttpGet("reservations")]
         public async Task<ActionResult> GetAllUserReservations()
