@@ -1,6 +1,7 @@
 using GatewayService.Controllers;
 using GatewayService.DTOs;
 using GatewayService.Models;
+using GatewayService.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
@@ -16,6 +17,8 @@ namespace GatewayService.Tests
     public class LibrarySystemControllerTests
     {
         private readonly Mock<IHttpClientFactory> _httpClientFactoryMock;
+        private readonly Mock<ServiceCircuitBreaker> _serviceCircuitBreakerMock;
+
         private readonly LibrarySystemController _controller;
         private readonly Mock<HttpMessageHandler> _httpMessageHandlerMock;
         private readonly HttpClient _httpClient;
@@ -28,7 +31,7 @@ namespace GatewayService.Tests
             _httpClientFactoryMock.Setup(x => x.CreateClient(It.IsAny<string>()))
                 .Returns(_httpClient);
 
-            _controller = new LibrarySystemController(_httpClientFactoryMock.Object);
+            _controller = new LibrarySystemController(_httpClientFactoryMock.Object, _serviceCircuitBreakerMock.Object);
 
 
             _controller.ControllerContext = new ControllerContext
