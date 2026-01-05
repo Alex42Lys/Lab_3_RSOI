@@ -32,7 +32,6 @@ public class RequestQueueService : BackgroundService, IRequestQueueService
     {
         _logger.LogInformation("RequestQueueService starting...");
 
-        // Дадим время другим сервисам запуститься
         await Task.Delay(10 * 1000, stoppingToken);
 
         _logger.LogInformation("Starting to process message queue...");
@@ -41,12 +40,10 @@ public class RequestQueueService : BackgroundService, IRequestQueueService
         {
             try
             {
-                // Проверяем, есть ли сообщения в очереди
                 if (_circuitBreaker.queue.Count > 0)
                 {
                     _logger.LogInformation("Found {Count} messages in queue", _circuitBreaker.queue.Count);
 
-                    // Берем первое сообщение
                     var message = _circuitBreaker.queue.FirstOrDefault();
 
                     if (message != null)
@@ -55,18 +52,14 @@ public class RequestQueueService : BackgroundService, IRequestQueueService
                             "Processing message for user '{User}' with delta {Delta}",
                             message.Usr, message.dlt);
 
-                        // Формируем URL
                         var url = $"http://rating:8080/Rating/changeRating?delta={message.dlt}";
                         _logger.LogDebug("Sending request to: {Url}", url);
 
-                        // Создаем запрос
                         var request = new HttpRequestMessage(HttpMethod.Post, url);
                         request.Headers.Add("X-User-Name", message.Usr);
 
-                        // Логируем заголовки
                         _logger.LogDebug("Request headers: X-User-Name = {Username}", message.Usr);
 
-                        // Отправляем запрос
                         _logger.LogInformation("Sending rating update request...");
                         var startTime = DateTime.UtcNow;
 
@@ -82,7 +75,6 @@ public class RequestQueueService : BackgroundService, IRequestQueueService
                                 "Successfully updated rating for user '{User}' with delta {Delta}",
                                 message.Usr, message.dlt);
 
-                            // Удаляем обработанное сообщение из очереди
                             _circuitBreaker.queue.TryTake(out var _);
                             _logger.LogInformation("Message removed from queue");
                         }
@@ -93,7 +85,6 @@ public class RequestQueueService : BackgroundService, IRequestQueueService
                                 "Failed to update rating. Status: {StatusCode}, Response: {Content}",
                                 response.StatusCode, errorContent);
 
-                            // Если ошибка, оставляем сообщение в очереди для повторной попытки
                             _logger.LogWarning("Message kept in queue for retry");
                         }
                     }
@@ -105,7 +96,6 @@ public class RequestQueueService : BackgroundService, IRequestQueueService
                 }
                 else
                 {
-                    // Если очередь пуста, ждем перед следующей проверкой
                     _logger.LogDebug("Queue is empty, waiting 5 seconds...");
                     await Task.Delay(5000, stoppingToken);
                 }
@@ -119,7 +109,6 @@ public class RequestQueueService : BackgroundService, IRequestQueueService
             {
                 _logger.LogError(httpEx, "HTTP request failed while processing queue");
 
-                // Ждем перед повторной попыткой
                 await Task.Delay(3000, stoppingToken);
             }
             catch (Exception ex)
@@ -136,7 +125,6 @@ public class RequestQueueService : BackgroundService, IRequestQueueService
     {
         _logger.LogInformation("RequestQueueService is shutting down...");
 
-        // Логируем состояние очереди при остановке
         if (_circuitBreaker.queue.Count > 0)
         {
             _logger.LogWarning("Queue has {Count} unprocessed messages on shutdown",
