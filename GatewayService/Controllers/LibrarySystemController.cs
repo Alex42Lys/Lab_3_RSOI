@@ -608,7 +608,6 @@ namespace GatewayService.Controllers
 
                 var bookId = reservationResult.Data.BookUid;
 
-                // Обработка Library Service через очередь - без деконструкции
                 var libraryResult = await ProcessLibraryServiceWithQueueAsync(
                     bookId,
                     returnBookRequest,
@@ -618,7 +617,6 @@ namespace GatewayService.Controllers
                 var librarySuccess = libraryResult.Success;
                 var deltaRating = libraryResult.DeltaRating;
 
-                // Обработка Rating Service через очередь (не блокирующая)
                 _ = ProcessRatingServiceWithQueueAsync(username, deltaRating);
 
                 // Сбрасываем Circuit Breaker
@@ -626,7 +624,6 @@ namespace GatewayService.Controllers
                 _circuitBreaker.Reset(ratingService);
                 _circuitBreaker.Reset(libraryService);
 
-                // Возвращаем успех сразу, даже если фоновые задачи еще выполняются
                 return StatusCode(204);
             }
             catch (Exception ex)

@@ -17,12 +17,8 @@ builder.Services.AddSingleton<ServiceCircuitBreaker>(sp =>
     new ServiceCircuitBreaker(5, 10));
 builder.Services.AddSingleton<RabbitMQService>();
 var app = builder.Build();
-// В Program.cs или Startup.cs
 builder.Services.AddHostedService<RequestQueueService>();
-builder.Services.AddSingleton<IRequestQueueService>(provider =>
-    provider.GetServices<IHostedService>()
-        .OfType<RequestQueueService>()
-        .First());
+builder.Services.AddSingleton<IRequestQueueService, RequestQueueService>();
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
