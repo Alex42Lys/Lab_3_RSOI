@@ -77,6 +77,14 @@ namespace GatewayService.Controllers
                 _circuitBreaker.Reset(serviceName);
                 return Ok(libraryResponse);
             }
+            catch(HttpRequestException httpex)
+            {
+                _circuitBreaker.AddRequest(serviceName);
+                return StatusCode(503, new ErrorResponse
+                {
+                    Message = "Bonus Service unavailable"
+                });
+            }
             catch (Exception ex)
             {
                 return StatusCode(500, new ErrorResponse
@@ -140,6 +148,14 @@ namespace GatewayService.Controllers
                 _circuitBreaker.Reset(serviceName);
 
                 return Ok(libraryResponse);
+            }
+            catch (HttpRequestException httpex)
+            {
+                _circuitBreaker.AddRequest(serviceName);
+                return StatusCode(503, new ErrorResponse
+                {
+                    Message = "Bonus Service unavailable"
+                });
             }
             catch (Exception ex)
             {
@@ -269,40 +285,57 @@ namespace GatewayService.Controllers
                 {
                     if (!_circuitBreaker.HasTimeOutPassed(libraryService))
                     {
-                        continue;
+                        return StatusCode(503, new ErrorResponse
+                        {
+                            Message = "Bonus Service unavailable"
+                        });
                     }
 
                     {
                         var bookId = reservation.BookUid;
                         var libId = reservation.LibraryUid;
-
-                        var bookUrl = $"http://library:8080/Library/GetBookByUuid?bookId={bookId}";
-                        var bookRequest = new HttpRequestMessage(HttpMethod.Get, bookUrl);
-                        var bookResponse = await _httpClient.SendAsync(bookRequest);
-
-                        var bookContent = await bookResponse.Content.ReadAsStringAsync();
-                        var bookInfo = JsonSerializer.Deserialize<BookInfo>(bookContent, options);
-
-                        var libUrl = $"http://library:8080/Library/GetLibraryByUuid?libid={libId}";
-                        var libRequest = new HttpRequestMessage(HttpMethod.Get, libUrl);
-                        var libResponse = await _httpClient.SendAsync(libRequest);
-
-                        var libContent = await libResponse.Content.ReadAsStringAsync();
-                        var libraryInfo = JsonSerializer.Deserialize<LibraryResponse>(libContent, options);
-
-                        var reservationResponse = new BookReservationResponse()
+                        try
                         {
-                            Book = bookInfo,
-                            Library = libraryInfo,
-                            ReservationUid = reservation.ReservationUid.ToString(),
-                            StartDate = reservation.StartDate.ToString("yyyy-MM-dd"),
-                            Status = reservation.Status,
-                            TillDate = reservation.TillDate.ToString("yyyy-MM-dd"),
-                        };
 
-                        result.Add(reservationResponse);
+
+                            var bookUrl = $"http://library:8080/Library/GetBookByUuid?bookId={bookId}";
+                            var bookRequest = new HttpRequestMessage(HttpMethod.Get, bookUrl);
+                            var bookResponse = await _httpClient.SendAsync(bookRequest);
+
+                            var bookContent = await bookResponse.Content.ReadAsStringAsync();
+                            var bookInfo = JsonSerializer.Deserialize<BookInfo>(bookContent, options);
+
+                            var libUrl = $"http://library:8080/Library/GetLibraryByUuid?libid={libId}";
+                            var libRequest = new HttpRequestMessage(HttpMethod.Get, libUrl);
+                            var libResponse = await _httpClient.SendAsync(libRequest);
+
+                            var libContent = await libResponse.Content.ReadAsStringAsync();
+                            var libraryInfo = JsonSerializer.Deserialize<LibraryResponse>(libContent, options);
+
+                            var reservationResponse = new BookReservationResponse()
+                            {
+                                Book = bookInfo,
+                                Library = libraryInfo,
+                                ReservationUid = reservation.ReservationUid.ToString(),
+                                StartDate = reservation.StartDate.ToString("yyyy-MM-dd"),
+                                Status = reservation.Status,
+                                TillDate = reservation.TillDate.ToString("yyyy-MM-dd"),
+                            };
+
+                            result.Add(reservationResponse);
+                        }
+                        catch (HttpRequestException ex) 
+                        {
+                            _circuitBreaker.AddRequest(libraryService);
+                            return StatusCode(503, new ErrorResponse
+                            {
+                                Message = "Bonus Service unavailable"
+                            });
+                        }
                     }
                 }
+                _circuitBreaker.Reset(libraryService);
+
                 _circuitBreaker.Reset(reservationService);
                 return Ok(result);
             }
@@ -355,13 +388,16 @@ namespace GatewayService.Controllers
                         Message = "X-User-Name header is required"
                     });
                 }
+                HttpResponseMessage? response = null;
+                string? url = "";
+                HttpRequestMessage? request = null;
+                try { 
+                    url = "http://reservation:8080/Reservation/AllReservations";
+                    request = new HttpRequestMessage(HttpMethod.Get, url);
+                    request.Headers.Add("X-User-Name", username.ToString());
 
-                var url = "http://reservation:8080/Reservation/AllReservations";
-                var request = new HttpRequestMessage(HttpMethod.Get, url);
-                request.Headers.Add("X-User-Name", username.ToString());
-
-                var response = await _httpClient.SendAsync(request);
-
+                    response = await _httpClient.SendAsync(request);
+                
                 if (!response.IsSuccessStatusCode)
                 {
                     _circuitBreaker.AddRequest(reservationService);
@@ -370,7 +406,15 @@ namespace GatewayService.Controllers
                         Message = "Bonus Service unavailable"
                     });
                 }
-
+                }
+                catch(HttpRequestException ex)
+                {
+                    _circuitBreaker.AddRequest(reservationService);
+                    return StatusCode(503, new ErrorResponse
+                    {
+                        Message = "Bonus Service unavailable"
+                    });
+                }
                 var content = await response.Content.ReadAsStringAsync();
                 var options = new JsonSerializerOptions
                 {
@@ -406,18 +450,31 @@ namespace GatewayService.Controllers
                         Message = "Too many rented books"
                     });
                 }
+                Reservation reservationResponse = null;
+                try
+                {
+                    url = "http://reservation:8080/Reservation/CreateNewReservation";
+                    var json = JsonSerializer.Serialize(takeBookRequest);
+                    var reqContent = new StringContent(json, Encoding.UTF8, "application/json");
 
-                url = "http://reservation:8080/Reservation/CreateNewReservation";
-                var json = JsonSerializer.Serialize(takeBookRequest);
-                var reqContent = new StringContent(json, Encoding.UTF8, "application/json");
+                    var requestMessage = new HttpRequestMessage(HttpMethod.Post, url);
+                    requestMessage.Headers.Add("X-User-Name", username.ToString());
+                    requestMessage.Content = reqContent;
 
-                var requestMessage = new HttpRequestMessage(HttpMethod.Post, url);
-                requestMessage.Headers.Add("X-User-Name", username.ToString());
-                requestMessage.Content = reqContent;
+                    var respContent = await _httpClient.SendAsync(requestMessage);
 
-                var respContent = await _httpClient.SendAsync(requestMessage);
-
-                if (!respContent.IsSuccessStatusCode)
+                    if (!respContent.IsSuccessStatusCode)
+                    {
+                        _circuitBreaker.AddRequest(reservationService);
+                        return StatusCode(503, new ErrorResponse
+                        {
+                            Message = "Bonus Service unavailable"
+                        });
+                    }
+                    var responseContent = await respContent.Content.ReadAsStringAsync();
+                    reservationResponse = JsonSerializer.Deserialize<Reservation>(responseContent, options);
+                }
+                catch (HttpRequestException ex)
                 {
                     _circuitBreaker.AddRequest(reservationService);
                     return StatusCode(503, new ErrorResponse
@@ -425,48 +482,59 @@ namespace GatewayService.Controllers
                         Message = "Bonus Service unavailable"
                     });
                 }
-                var responseContent = await respContent.Content.ReadAsStringAsync();
-                var reservationResponse = JsonSerializer.Deserialize<Reservation>(responseContent, options);
-
-                url = $"http://library:8080/Library/changeCount?bookId={takeBookRequest.BookUid}libId={takeBookRequest.LibraryUid}delta={-1}";
-                request = new HttpRequestMessage(HttpMethod.Get, url);
-                response = await _httpClient.SendAsync(request);
-                content = await response.Content.ReadAsStringAsync();
-
-                var bookId = takeBookRequest.BookUid;
-                var libId = takeBookRequest.LibraryUid;
-
-                var bookUrl = $"http://library:8080/Library/GetBookByUuid?bookId={bookId}";
-                var bookRequest = new HttpRequestMessage(HttpMethod.Get, bookUrl);
-                var bookResponse = await _httpClient.SendAsync(bookRequest);
-
-                var bookContent = await bookResponse.Content.ReadAsStringAsync();
-                var bookInfo = JsonSerializer.Deserialize<BookInfo>(bookContent, options);
-
-                var libUrl = $"http://library:8080/Library/GetLibraryByUuid?libid={libId}";
-                var libRequest = new HttpRequestMessage(HttpMethod.Get, libUrl);
-                var libResponse = await _httpClient.SendAsync(libRequest);
-
-                var libContent = await libResponse.Content.ReadAsStringAsync();
-                var libraryInfo = JsonSerializer.Deserialize<LibraryResponse>(libContent, options);
-
-                var ans = new TakeBookResponse()
+                TakeBookResponse ans = null;
+                try
                 {
-                    Book = bookInfo,
-                    Library = libraryInfo,
-                    ReservationUid = reservationResponse.ReservationUid.ToString(),
-                    Status = reservationResponse.Status,
-                    StartDate = reservationResponse.StartDate.ToString("yyyy-MM-dd"),
-                    TillDate = reservationResponse.TillDate.ToString("yyyy-MM-dd"),
-                    Rating = ratingResponse,
-                };
+
+
+                    url = $"http://library:8080/Library/changeCount?bookId={takeBookRequest.BookUid}libId={takeBookRequest.LibraryUid}delta={-1}";
+                    request = new HttpRequestMessage(HttpMethod.Get, url);
+                    response = await _httpClient.SendAsync(request);
+                    content = await response.Content.ReadAsStringAsync();
+
+                    var bookId = takeBookRequest.BookUid;
+                    var libId = takeBookRequest.LibraryUid;
+
+                    var bookUrl = $"http://library:8080/Library/GetBookByUuid?bookId={bookId}";
+                    var bookRequest = new HttpRequestMessage(HttpMethod.Get, bookUrl);
+                    var bookResponse = await _httpClient.SendAsync(bookRequest);
+
+                    var bookContent = await bookResponse.Content.ReadAsStringAsync();
+                    var bookInfo = JsonSerializer.Deserialize<BookInfo>(bookContent, options);
+
+                    var libUrl = $"http://library:8080/Library/GetLibraryByUuid?libid={libId}";
+                    var libRequest = new HttpRequestMessage(HttpMethod.Get, libUrl);
+                    var libResponse = await _httpClient.SendAsync(libRequest);
+
+                    var libContent = await libResponse.Content.ReadAsStringAsync();
+                    var libraryInfo = JsonSerializer.Deserialize<LibraryResponse>(libContent, options);
+
+                    ans = new TakeBookResponse()
+                    {
+                        Book = bookInfo,
+                        Library = libraryInfo,
+                        ReservationUid = reservationResponse.ReservationUid.ToString(),
+                        Status = reservationResponse.Status,
+                        StartDate = reservationResponse.StartDate.ToString("yyyy-MM-dd"),
+                        TillDate = reservationResponse.TillDate.ToString("yyyy-MM-dd"),
+                        Rating = ratingResponse,
+                    };
+                }
+                catch (HttpRequestException ex)
+                {
+                    _circuitBreaker.AddRequest(libraryService);
+                    return StatusCode(503, new ErrorResponse
+                    {
+                        Message = "Bonus Service unavailable"
+                    });
+                }
                 _circuitBreaker.Reset(reservationService);
                 _circuitBreaker.Reset(ratingService);
                 return Ok(ans);
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new ErrorResponse
+                return StatusCode(503, new ErrorResponse
                 {
                     Message = ex.Message
                 });
@@ -581,7 +649,9 @@ namespace GatewayService.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new ErrorResponse
+                _circuitBreaker.AddRequest(reservationService);
+
+                return StatusCode(503, new ErrorResponse
                 {
                     Message = ex.Message
                 });
