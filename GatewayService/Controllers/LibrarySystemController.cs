@@ -141,8 +141,6 @@ namespace GatewayService.Controllers
         }
 
         [HttpGet("rating")]
-        [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-        [Produces("application/json")]
         public async Task<ActionResult> GetUserRating()
         {
             const string serviceName = "RatingService";
