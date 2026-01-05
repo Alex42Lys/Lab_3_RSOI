@@ -15,12 +15,12 @@ namespace GatewayService.Controllers
     {
         private readonly HttpClient _httpClient;
         private readonly ServiceCircuitBreaker _circuitBreaker;
-        private readonly RabbitMQService  _rabbitMQService;
+       // private readonly RabbitMQService // _rabbitMQService;
 
         public LibrarySystemController(
             IHttpClientFactory httpClientFactory,
-            ServiceCircuitBreaker circuitBreaker,
-            RabbitMQService rabbitMQService
+            ServiceCircuitBreaker circuitBreaker
+            //RabbitMQService rabbitMQService
             )
         {
             _httpClient = httpClientFactory.CreateClient();
@@ -551,18 +551,30 @@ namespace GatewayService.Controllers
         }
 
         [HttpPost("reservations/{reservationUid}/return")]
-        public async Task<ActionResult> ReturnBook(
-            [FromBody] ReturnBookRequest returnBookRequest,
-            [FromRoute] Guid reservationUid)
+        public async Task<ActionResult> ReturnBook
+            ([FromBody] ReturnBookRequest returnBookRequest, [FromRoute] Guid reservationUid)
         {
             const string reservationService = "ReservationService";
             const string ratingService = "RatingService";
             const string libraryService = "LibraryService";
 
-            // Проверяем доступность всех сервисов
-            if (!_circuitBreaker.HasTimeOutPassed(reservationService) ||
-                !_circuitBreaker.HasTimeOutPassed(ratingService) ||
-                !_circuitBreaker.HasTimeOutPassed(libraryService))
+            if (!_circuitBreaker.HasTimeOutPassed(reservationService))
+            {
+                return StatusCode(503, new ErrorResponse
+                {
+                    Message = "Bonus Service unavailable"
+                });
+            }
+
+            if (!_circuitBreaker.HasTimeOutPassed(ratingService))
+            {
+                return StatusCode(503, new ErrorResponse
+                {
+                    Message = "Bonus Service unavailable"
+                });
+            }
+
+            if (!_circuitBreaker.HasTimeOutPassed(libraryService))
             {
                 return StatusCode(503, new ErrorResponse
                 {
@@ -579,14 +591,12 @@ namespace GatewayService.Controllers
                         Message = "X-User-Name header is required"
                     });
                 }
-
                 var options = new JsonSerializerOptions
                 {
                     PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
                     PropertyNameCaseInsensitive = true
                 };
 
-                // 1. Закрытие резервации
                 var url = $"http://reservation:8080/Reservation/CloseReservation?resId={reservationUid.ToString()}";
                 var json = JsonSerializer.Serialize(returnBookRequest);
                 var reqContent = new StringContent(json, Encoding.UTF8, "application/json");
@@ -605,218 +615,63 @@ namespace GatewayService.Controllers
                         Message = "Bonus Service unavailable"
                     });
                 }
-
                 var responseContent = await respContent.Content.ReadAsStringAsync();
                 var reservationResponse = JsonSerializer.Deserialize<Reservation>(responseContent, options);
 
                 var bookId = reservationResponse.BookUid;
-                var libraryUid = reservationResponse.LibraryUid;
                 var deltaRating = 0;
-
                 try
                 {
-                    // 2. Получение информации о состоянии книги
                     var bookUrl = $"http://library:8080/Library/GetBookConditionByUuid?bookId={bookId}";
                     var bookRequest = new HttpRequestMessage(HttpMethod.Get, bookUrl);
                     var bookResponse = await _httpClient.SendAsync(bookRequest);
 
-                    if (bookResponse.IsSuccessStatusCode)
-                    {
-                        var bookContent = await bookResponse.Content.ReadAsStringAsync();
-                        var book = JsonSerializer.Deserialize<Book>(bookContent, options);
+                    var bookContent = await bookResponse.Content.ReadAsStringAsync();
+                    var book = JsonSerializer.Deserialize<Book>(bookContent, options);
 
-                        if (reservationResponse.Status == "RETURNED" && returnBookRequest.Condition == book.Condition)
-                        {
-                            deltaRating += 1;
-                        }
-                        if (reservationResponse.Status == "EXPIRED")
-                        {
-                            deltaRating -= 10;
-                        }
-                        if (returnBookRequest.Condition != book.Condition)
-                        {
-                            deltaRating -= 10;
-                            // Обновление состояния книги
-                            await UpdateBookCondition(book.BookUid, returnBookRequest.Condition);
-                        }
-                    }
-                    else
+                    
+                    if (reservationResponse.Status == "RETURNED" && returnBookRequest.Condition == book.Condition)
                     {
-                        // Если не удалось получить состояние книги, добавляем в очередь
-                        await QueueUpdateBookCondition(bookId, returnBookRequest.Condition, deltaRating);
+                        deltaRating += 1;
+                    }
+                    if (reservationResponse.Status == "EXPIRED")
+                    {
+                        deltaRating -= 10;
+                    }
+                    if (returnBookRequest.Condition != book.Condition)
+                    {
+                        deltaRating -= 10;
+                        url = $"http://library:8080/Library/changeCondition?bookId={book.BookUid}condition={returnBookRequest.Condition}";
+                        var request = new HttpRequestMessage(HttpMethod.Get, url);
+                        var response = await _httpClient.SendAsync(request);
+                        var content = await response.Content.ReadAsStringAsync();
+                        var changeConditionresponse = JsonSerializer.Deserialize<string>(content, options);
                     }
                 }
-                catch (Exception ex)
+                catch (Exception ex) 
                 {
-                    // Если не удалось получить состояние книги, добавляем в очередь
-                    await QueueUpdateBookCondition(bookId, returnBookRequest.Condition, deltaRating);
-                }
 
-                // 3. Увеличение количества доступных книг
-                var bookCountSuccess = await IncreaseBookCount(libraryUid, bookId);
-                if (!bookCountSuccess)
-                {
-                    // Ставим в очередь для повторной попытки
-                    QueueIncreaseBookCount(libraryUid, bookId);
                 }
+                url = $"http://rating:8080/Rating/changeRating?delta={deltaRating}";
+                var re = new HttpRequestMessage(HttpMethod.Post, url);
+                re.Headers.Add("X-User-Name", username.ToString());
+                var rrp = await _httpClient.SendAsync(re);
 
-                // 4. Изменение рейтинга пользователя (только если deltaRating != 0)
-                if (deltaRating != 0)
-                {
-                    var ratingSuccess = await UpdateRating(username.ToString(), deltaRating);
-                    if (!ratingSuccess)
-                    {
-                        // Ставим в очередь для повторной попытки
-                        QueueUpdateRating(username.ToString(), deltaRating);
-                    }
-                }
-
-                // Сбрасываем circuit breaker для сервисов
                 _circuitBreaker.Reset(reservationService);
                 _circuitBreaker.Reset(ratingService);
                 _circuitBreaker.Reset(libraryService);
-
-                // Возвращаем успех даже если фоновые операции в очереди
                 return StatusCode(204);
             }
             catch (Exception ex)
             {
                 _circuitBreaker.AddRequest(reservationService);
+
                 return StatusCode(503, new ErrorResponse
                 {
                     Message = ex.Message
                 });
             }
         }
-
-        // Основной метод для обновления состояния книги (без таймаута при первом вызове)
-        private async Task<bool> UpdateBookCondition(Guid bookUid, string condition)
-        {
-            try
-            {
-                var url = $"http://library:8080/Library/changeCondition?bookId={bookUid}&condition={condition}";
-                var request = new HttpRequestMessage(HttpMethod.Get, url);
-
-                var response = await _httpClient.SendAsync(request);
-
-                if (response.IsSuccessStatusCode)
-                {
-                    return true;
-                }
-                else
-                {
-                    // Не удалось - ставим в очередь для повторной попытки с таймаутом
-                    return false;
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Ошибка при обновлении состояния книги: {ex.Message}");
-                return false;
-            }
-        }
-
-        // Метод для постановки обновления состояния книги в очередь
-        private async Task QueueUpdateBookCondition(Guid bookUid, string condition, int deltaRating)
-        {
-            var queueMessage = new
-            {
-                Type = "UpdateBookCondition",
-                BookUid = bookUid,
-                Condition = condition,
-                DeltaRating = deltaRating, // Сохраняем deltaRating для обновления рейтинга
-                Timestamp = DateTime.UtcNow,
-                RetryCount = 0
-            };
-
-            _rabbitMQService.SendMessage(queueMessage);
-        }
-
-        // Основной метод для увеличения количества книг (без таймаута при первом вызове)
-        private async Task<bool> IncreaseBookCount(Guid libraryUid, Guid bookUid)
-        {
-            try
-            {
-                var url = $"http://library:8080/Library/changeCount?bookId={bookUid}&libId={libraryUid}&delta=1";
-                var request = new HttpRequestMessage(HttpMethod.Get, url);
-
-                var response = await _httpClient.SendAsync(request);
-
-                if (response.IsSuccessStatusCode)
-                {
-                    return true;
-                }
-                else
-                {
-                    // Не удалось - возвращаем false для постановки в очередь
-                    return false;
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Ошибка при увеличении количества книг: {ex.Message}");
-                return false;
-            }
-        }
-
-        // Метод для постановки увеличения количества книг в очередь
-        private void QueueIncreaseBookCount(Guid libraryUid, Guid bookUid)
-        {
-            var queueMessage = new
-            {
-                Type = "IncreaseBookCount",
-                BookUid = bookUid,
-                LibraryUid = libraryUid,
-                Delta = 1,
-                Timestamp = DateTime.UtcNow,
-                RetryCount = 0
-            };
-
-            _rabbitMQService.SendMessage(queueMessage);
-        }
-
-        // Основной метод для обновления рейтинга (без таймаута при первом вызове)
-        private async Task<bool> UpdateRating(string username, int deltaRating)
-        {
-            try
-            {
-                var url = $"http://rating:8080/Rating/changeRating?delta={deltaRating}";
-                var request = new HttpRequestMessage(HttpMethod.Post, url);
-                request.Headers.Add("X-User-Name", username);
-
-                var response = await _httpClient.SendAsync(request);
-
-                if (response.IsSuccessStatusCode)
-                {
-                    return true;
-                }
-                else
-                {
-                    // Не удалось - возвращаем false для постановки в очередь
-                    return false;
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Ошибка при обновлении рейтинга: {ex.Message}");
-                return false;
-            }
-        }
-
-        // Метод для постановки обновления рейтинга в очередь
-        private void QueueUpdateRating(string username, int deltaRating)
-        {
-            var queueMessage = new
-            {
-                Type = "UpdateRating",
-                UserName = username,
-                DeltaRating = deltaRating,
-                Timestamp = DateTime.UtcNow,
-                RetryCount = 0
-            };
-
-            _rabbitMQService.SendMessage(queueMessage);
-        }
-
+    
     }
 }
