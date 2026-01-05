@@ -20,7 +20,7 @@ services:
     ports:
       - "8070:8080"
     environment:
-      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_ENVIRONMENT=Development
       - ConnectionStrings__DefaultConnection=Server=postgres;Port=5432;Database=reservations;Username=postgres;Password=postgres;
     depends_on:
       - postgres
@@ -32,7 +32,7 @@ services:
     ports:
       - "8060:8080"
     environment:
-      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_ENVIRONMENT=Development
       - ConnectionStrings__DefaultConnection=Server=postgres;Port=5432;Username=postgres;Password=postgres;Database=libraries;
     depends_on:
       - postgres
@@ -44,7 +44,7 @@ services:
     ports:
       - "8050:8080"
     environment:
-      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_ENVIRONMENT=Development
       - ConnectionStrings__DefaultConnection=Server=postgres;Port=5432;Database=ratings;Username=postgres;Password=postgres;
     depends_on:
       - postgres
@@ -56,7 +56,7 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_ENVIRONMENT=Development
       - LibraryService__BaseUrl=http://library:8080/
       - RatingService__BaseUrl=http://rating:8080/
       - ReservationService__BaseUrl=http://reservation:8080/
