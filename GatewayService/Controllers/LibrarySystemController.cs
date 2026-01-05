@@ -140,49 +140,18 @@ namespace GatewayService.Controllers
 
         }
 
-        [HttpGet("rating")]
-        public async Task<ActionResult> GetUserRating()
-        {
-            const string serviceName = "RatingService";
+            [HttpGet("rating")]
+            [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
 
-            if (!_circuitBreaker.HasTimeOutPassed(serviceName))
+            public async Task<ActionResult> GetUserRating()
             {
-                return StatusCode(503, "Rating service is temporarily unavailable");
-            }
-
             try
             {
-                if (!Request.Headers.TryGetValue("X-User-Name", out var username))
-                {
-                    return BadRequest("X-User-Name header is required");
-                }
-
-                var url = "http://rating:8080/Rating/rating";
-                var request = new HttpRequestMessage(HttpMethod.Get, url);
-                request.Headers.Add("X-User-Name", username.ToString());
-
-                var response = await _httpClient.SendAsync(request);
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    _circuitBreaker.AddRequest(serviceName);
-                    return StatusCode(503, "Error fetching rating");
-                }
-
-                var content = await response.Content.ReadAsStringAsync();
-                var options = new JsonSerializerOptions
-                {
-                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                    PropertyNameCaseInsensitive = true
-                };
-
-                var ratingResponse = JsonSerializer.Deserialize<UserRatingResponse>(content, options);
-                _circuitBreaker.Reset(serviceName);
-                return Ok(ratingResponse);
+                throw new Exception("Test exception");
             }
-            catch (Exception ex)
+            catch
             {
-                return StatusCode(500, ex.Message);
+                return StatusCode(503);
             }
 
         }
