@@ -11,11 +11,9 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHttpClient();
-builder.Services.Configure<RabbitMQOptions>(
-    builder.Configuration.GetSection("RabbitMQ"));
+
 builder.Services.AddSingleton<ServiceCircuitBreaker>(sp =>
     new ServiceCircuitBreaker(5, 10));
-builder.Services.AddSingleton<RabbitMQService>();
 builder.Services.AddHostedService<RequestQueueService>();
 builder.Services.AddSingleton<IRequestQueueService>(sp =>
     sp.GetServices<IHostedService>().OfType<RequestQueueService>().First());
