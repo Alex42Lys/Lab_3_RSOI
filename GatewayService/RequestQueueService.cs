@@ -1,6 +1,8 @@
 ﻿using GatewayService;
+using GatewayService.Services;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
+using System;
 using System.Collections.Concurrent;
 using System.Text;
 using System.Threading.Channels;
@@ -11,29 +13,24 @@ public interface IRequestQueueService
 
 public class RequestQueueService : BackgroundService, IRequestQueueService
 {
+    private readonly HttpClient _httpClient;
+    private readonly ServiceCircuitBreaker _circuitBreaker;
+
+    public RequestQueueService(HttpClient httpClient, ServiceCircuitBreaker circuitBreaker)
+    {
+        _httpClient = httpClient;
+        _circuitBreaker = circuitBreaker;
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
 
-        var factory = new ConnectionFactory { HostName = "rabbitmq:5672", UserName = "guest", Password = "guest" };
-        using var connection = await factory.CreateConnectionAsync();
-        using var channel = await connection.CreateChannelAsync();
-
-        await channel.QueueDeclareAsync(queue: "hello", durable: false, exclusive: false, autoDelete: false,
-            arguments: null);
-
-        Console.WriteLine(" [*] Waiting for messages.");
-
-        var consumer = new AsyncEventingBasicConsumer(channel);
-        consumer.ReceivedAsync += (model, ea) =>
-        {
-            var body = ea.Body.ToArray();
-            var message = Encoding.UTF8.GetString(body);
-            Console.WriteLine($" [x] Received {message}");
-            return Task.CompletedTask;
-        };
-
-        await channel.BasicConsumeAsync("hello", autoAck: true, consumer: consumer);
+        Thread.Sleep(10 * 1000);
+        var m = _circuitBreaker.queue.FirstOrDefault();
+        var url = $"http://rating:8080/Rating/changeRating?delta={m.dlt}";
+        var re = new HttpRequestMessage(HttpMethod.Post, url);
+        re.Headers.Add("X-User-Name", m.Usr);
+        var rrp = await _httpClient.SendAsync(re);
     }
 
 

@@ -4,6 +4,8 @@ namespace GatewayService.Services
 {
     public class ServiceCircuitBreaker
     {
+        public BlockingCollection<QueMsg> queue = new BlockingCollection<QueMsg>();
+
         private class ServiceState
         {
             public int CurrentRequests { get; set; }

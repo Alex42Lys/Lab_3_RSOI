@@ -558,7 +558,8 @@ namespace GatewayService.Controllers
             const string reservationService = "ReservationService";
             const string ratingService = "RatingService";
             const string libraryService = "LibraryService";
-
+            string usr = "";
+            int d = 0;
             if (!_circuitBreaker.HasTimeOutPassed(reservationService))
             {
                 return StatusCode(503, new ErrorResponse
@@ -657,7 +658,8 @@ namespace GatewayService.Controllers
                 var re = new HttpRequestMessage(HttpMethod.Post, url);
                 re.Headers.Add("X-User-Name", username.ToString());
                 var rrp = await _httpClient.SendAsync(re);
-
+                usr = username.ToString();
+                d = deltaRating;
                 _circuitBreaker.Reset(reservationService);
                 _circuitBreaker.Reset(ratingService);
                 _circuitBreaker.Reset(libraryService);
@@ -666,18 +668,8 @@ namespace GatewayService.Controllers
             catch (Exception ex)
             {
                 _circuitBreaker.AddRequest(reservationService);
-                var factory = new ConnectionFactory { HostName = "rabbitmq:5672", UserName="guest", Password ="guest" };
-                using var connection = await factory.CreateConnectionAsync();
-                using var channel = await connection.CreateChannelAsync();
-
-                await channel.QueueDeclareAsync(queue: "hello", durable: false, exclusive: false, autoDelete: false,
-                    arguments: null);
-                const string message = "Hello World!";
-                var body = Encoding.UTF8.GetBytes(message);
-
-                await channel.BasicPublishAsync(exchange: string.Empty, routingKey: "hello", body: body);
-
-
+                var msg = new QueMsg{Id = Guid.NewGuid(), Usr = usr, dlt = d };
+                _circuitBreaker.queue.Add(msg);
                 return StatusCode(204);
             }
         }
