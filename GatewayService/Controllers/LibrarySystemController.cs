@@ -141,7 +141,7 @@ namespace GatewayService.Controllers
         }
 
             [HttpGet("rating")]
-            [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+            [Produces("application/json")] // Явно указываем, что метод возвращает JSON
 
             public async Task<ActionResult> GetUserRating()
             {
