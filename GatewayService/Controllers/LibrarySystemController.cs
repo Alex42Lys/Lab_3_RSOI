@@ -34,10 +34,9 @@ namespace GatewayService.Controllers
 
             if (!_circuitBreaker.HasTimeOutPassed(serviceName))
             {
-                return StatusCode(503, new
+                return StatusCode(503, new ErrorResponse
                 {
-                    message = "Library service is temporarily unavailable",
-                    service = serviceName
+                    Message = "Bonus Service unavailable"
                 });
             }
 
@@ -61,8 +60,10 @@ namespace GatewayService.Controllers
                 if (!response.IsSuccessStatusCode)
                 {
                     _circuitBreaker.AddRequest(serviceName);
-
-                    return StatusCode(503, "Error fetching libraries");
+                    return StatusCode(503, new ErrorResponse
+                    {
+                        Message = "Bonus Service unavailable"
+                    });
                 }
 
                 var content = await response.Content.ReadAsStringAsync();
@@ -78,9 +79,11 @@ namespace GatewayService.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, ex.Message);
+                return StatusCode(500, new ErrorResponse
+                {
+                    Message = ex.Message
+                });
             }
-
         }
 
         [HttpGet("libraries/{libraryUid}/books")]
@@ -94,7 +97,10 @@ namespace GatewayService.Controllers
 
             if (!_circuitBreaker.HasTimeOutPassed(serviceName))
             {
-                return StatusCode(503, "Library service is temporarily unavailable");
+                return StatusCode(503, new ErrorResponse
+                {
+                    Message = "Bonus Service unavailable"
+                });
             }
 
             try
@@ -117,8 +123,10 @@ namespace GatewayService.Controllers
                 if (!response.IsSuccessStatusCode)
                 {
                     _circuitBreaker.AddRequest(serviceName);
-
-                    return StatusCode(503, "Error fetching libraries");
+                    return StatusCode(503, new ErrorResponse
+                    {
+                        Message = "Bonus Service unavailable"
+                    });
                 }
 
                 var content = await response.Content.ReadAsStringAsync();
@@ -135,9 +143,11 @@ namespace GatewayService.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, ex.Message);
+                return StatusCode(500, new ErrorResponse
+                {
+                    Message = ex.Message
+                });
             }
-
         }
 
         [HttpGet("rating")]
@@ -197,6 +207,13 @@ namespace GatewayService.Controllers
                     Message = "Bonus Service unavailable"
                 });
             }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new ErrorResponse
+                {
+                    Message = ex.Message
+                });
+            }
         }
 
         [HttpGet("reservations")]
@@ -207,14 +224,20 @@ namespace GatewayService.Controllers
 
             if (!_circuitBreaker.HasTimeOutPassed(reservationService))
             {
-                return StatusCode(503, "Reservation service is temporarily unavailable");
+                return StatusCode(503, new ErrorResponse
+                {
+                    Message = "Bonus Service unavailable"
+                });
             }
 
             try
             {
                 if (!Request.Headers.TryGetValue("X-User-Name", out var username))
                 {
-                    return BadRequest("X-User-Name header is required");
+                    return BadRequest(new ErrorResponse
+                    {
+                        Message = "X-User-Name header is required"
+                    });
                 }
 
                 var url = "http://reservation:8080/Reservation/AllReservations";
@@ -226,7 +249,10 @@ namespace GatewayService.Controllers
                 if (!response.IsSuccessStatusCode)
                 {
                     _circuitBreaker.AddRequest(reservationService);
-                    return StatusCode(503, "Error fetching reservations");
+                    return StatusCode(503, new ErrorResponse
+                    {
+                        Message = "Bonus Service unavailable"
+                    });
                 }
 
                 var content = await response.Content.ReadAsStringAsync();
@@ -276,16 +302,17 @@ namespace GatewayService.Controllers
 
                         result.Add(reservationResponse);
                     }
-
                 }
                 _circuitBreaker.Reset(reservationService);
                 return Ok(result);
             }
             catch (Exception ex)
             {
-                return StatusCode(500, ex.Message);
+                return StatusCode(500, new ErrorResponse
+                {
+                    Message = ex.Message
+                });
             }
-
         }
 
         [HttpPost("reservations")]
@@ -297,25 +324,36 @@ namespace GatewayService.Controllers
 
             if (!_circuitBreaker.HasTimeOutPassed(reservationService))
             {
-                return StatusCode(503, "Reservation service is temporarily unavailable");
+                return StatusCode(503, new ErrorResponse
+                {
+                    Message = "Bonus Service unavailable"
+                });
             }
 
             if (!_circuitBreaker.HasTimeOutPassed(ratingService))
             {
-                return StatusCode(503, "Rating service is temporarily unavailable");
+                return StatusCode(503, new ErrorResponse
+                {
+                    Message = "Bonus Service unavailable"
+                });
             }
 
             if (!_circuitBreaker.HasTimeOutPassed(libraryService))
             {
-
-                return StatusCode(503, "Library service is temporarily unavailable");
+                return StatusCode(503, new ErrorResponse
+                {
+                    Message = "Bonus Service unavailable"
+                });
             }
 
             try
             {
                 if (!Request.Headers.TryGetValue("X-User-Name", out var username))
                 {
-                    return BadRequest("X-User-Name header is required");
+                    return BadRequest(new ErrorResponse
+                    {
+                        Message = "X-User-Name header is required"
+                    });
                 }
 
                 var url = "http://reservation:8080/Reservation/AllReservations";
@@ -327,7 +365,10 @@ namespace GatewayService.Controllers
                 if (!response.IsSuccessStatusCode)
                 {
                     _circuitBreaker.AddRequest(reservationService);
-                    return StatusCode(503, "Error fetching reservations");
+                    return StatusCode(503, new ErrorResponse
+                    {
+                        Message = "Bonus Service unavailable"
+                    });
                 }
 
                 var content = await response.Content.ReadAsStringAsync();
@@ -340,8 +381,6 @@ namespace GatewayService.Controllers
                 var reservations = JsonSerializer.Deserialize<List<Reservation>>(content, options);
                 var bookCount = reservations.Count();
 
-                //////////////////////////////////////////////
-
                 url = "http://rating:8080/Rating/rating";
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("X-User-Name", username.ToString());
@@ -350,8 +389,11 @@ namespace GatewayService.Controllers
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    _circuitBreaker.AddRequest(ratingService); 
-                    return StatusCode(503, "Error fetching rating");
+                    _circuitBreaker.AddRequest(ratingService);
+                    return StatusCode(503, new ErrorResponse
+                    {
+                        Message = "Bonus Service unavailable"
+                    });
                 }
 
                 content = await response.Content.ReadAsStringAsync();
@@ -359,10 +401,11 @@ namespace GatewayService.Controllers
                 var ratingResponse = JsonSerializer.Deserialize<UserRatingResponse>(content, options);
                 if (ratingResponse.Stars <= bookCount)
                 {
-                    return StatusCode(403, "Too many rented books");
+                    return StatusCode(403, new ErrorResponse
+                    {
+                        Message = "Too many rented books"
+                    });
                 }
-
-                /////////////////////////////////////////////////
 
                 url = "http://reservation:8080/Reservation/CreateNewReservation";
                 var json = JsonSerializer.Serialize(takeBookRequest);
@@ -377,19 +420,19 @@ namespace GatewayService.Controllers
                 if (!respContent.IsSuccessStatusCode)
                 {
                     _circuitBreaker.AddRequest(reservationService);
-                    return StatusCode(503, "Error creating reservation");
+                    return StatusCode(503, new ErrorResponse
+                    {
+                        Message = "Bonus Service unavailable"
+                    });
                 }
                 var responseContent = await respContent.Content.ReadAsStringAsync();
                 var reservationResponse = JsonSerializer.Deserialize<Reservation>(responseContent, options);
-
-                //////////////////////////////////////////////////////
 
                 url = $"http://library:8080/Library/changeCount?bookId={takeBookRequest.BookUid}libId={takeBookRequest.LibraryUid}delta={-1}";
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 response = await _httpClient.SendAsync(request);
                 content = await response.Content.ReadAsStringAsync();
 
-                //////////////////////////////////////////////
                 var bookId = takeBookRequest.BookUid;
                 var libId = takeBookRequest.LibraryUid;
 
@@ -423,9 +466,11 @@ namespace GatewayService.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, ex.Message);
+                return StatusCode(500, new ErrorResponse
+                {
+                    Message = ex.Message
+                });
             }
-
         }
 
         [HttpPost("reservations/{reservationUid}/return")]
@@ -433,14 +478,41 @@ namespace GatewayService.Controllers
             ([FromBody] ReturnBookRequest returnBookRequest, [FromRoute] Guid reservationUid)
         {
             const string reservationService = "ReservationService";
+            const string ratingService = "RatingService";
+            const string libraryService = "LibraryService";
+
+            if (!_circuitBreaker.HasTimeOutPassed(reservationService))
+            {
+                return StatusCode(503, new ErrorResponse
+                {
+                    Message = "Bonus Service unavailable"
+                });
+            }
+
+            if (!_circuitBreaker.HasTimeOutPassed(ratingService))
+            {
+                return StatusCode(503, new ErrorResponse
+                {
+                    Message = "Bonus Service unavailable"
+                });
+            }
+
+            if (!_circuitBreaker.HasTimeOutPassed(libraryService))
+            {
+                return StatusCode(503, new ErrorResponse
+                {
+                    Message = "Bonus Service unavailable"
+                });
+            }
 
             try
             {
-
-
                 if (!Request.Headers.TryGetValue("X-User-Name", out var username))
                 {
-                    return BadRequest("X-User-Name header is required");
+                    return BadRequest(new ErrorResponse
+                    {
+                        Message = "X-User-Name header is required"
+                    });
                 }
                 var options = new JsonSerializerOptions
                 {
@@ -461,14 +533,13 @@ namespace GatewayService.Controllers
                 if (!respContent.IsSuccessStatusCode)
                 {
                     _circuitBreaker.AddRequest(reservationService);
-                    return StatusCode(503, await respContent.Content.ReadAsStringAsync());
+                    return StatusCode(503, new ErrorResponse
+                    {
+                        Message = "Bonus Service unavailable"
+                    });
                 }
                 var responseContent = await respContent.Content.ReadAsStringAsync();
                 var reservationResponse = JsonSerializer.Deserialize<Reservation>(responseContent, options);
-
-
-                //////
-
 
                 var bookId = reservationResponse.BookUid;
 
@@ -476,12 +547,9 @@ namespace GatewayService.Controllers
                 var bookRequest = new HttpRequestMessage(HttpMethod.Get, bookUrl);
                 var bookResponse = await _httpClient.SendAsync(bookRequest);
 
-
                 var bookContent = await bookResponse.Content.ReadAsStringAsync();
                 var book = JsonSerializer.Deserialize<Book>(bookContent, options);
 
-                ////
-                ///
                 var deltaRating = 0;
                 if (reservationResponse.Status == "RETURNED" && returnBookRequest.Condition == book.Condition)
                 {
@@ -505,15 +573,18 @@ namespace GatewayService.Controllers
                 var re = new HttpRequestMessage(HttpMethod.Post, url);
                 re.Headers.Add("X-User-Name", username.ToString());
                 var rrp = await _httpClient.SendAsync(re);
-                //var content = await response.Content.ReadAsStringAsync();
 
                 _circuitBreaker.Reset(reservationService);
-                return StatusCode(204, "Книга успешно возвращена");
-
+                _circuitBreaker.Reset(ratingService);
+                _circuitBreaker.Reset(libraryService);
+                return StatusCode(204);
             }
             catch (Exception ex)
             {
-                return StatusCode(500, ex.Message);
+                return StatusCode(500, new ErrorResponse
+                {
+                    Message = ex.Message
+                });
             }
         }
     }
