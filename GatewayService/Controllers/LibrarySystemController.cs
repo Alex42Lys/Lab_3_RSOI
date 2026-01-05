@@ -353,7 +353,7 @@ namespace GatewayService.Controllers
             }
         }
 
-        HttpPost("reservations")]
+        [HttpPost("reservations")]
         public async Task<ActionResult> TakeBook([FromBody] TakeBookRequest takeBookRequest)
         {
             const string reservationService = "ReservationService";
@@ -663,5 +663,6 @@ namespace GatewayService.Controllers
                 });
             }
         }
+    
     }
 }
