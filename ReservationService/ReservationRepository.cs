@@ -46,5 +46,13 @@ namespace ReservationService
             var res = await (_context.Reservations.Where(x => x.Username == userName && x.ReservationUid == reservationId)).FirstOrDefaultAsync();
             return res;
         }
+
+        public async Task DeleteReservation(Guid resId)
+        {
+            var r = await(_context.Reservations.Where(x => x.ReservationUid == resId)).FirstOrDefaultAsync();
+            _context.Reservations.Remove(r);
+            await _context.SaveChangesAsync();
+
+        }
     }
 }

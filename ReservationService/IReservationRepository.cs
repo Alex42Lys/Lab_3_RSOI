@@ -9,6 +9,7 @@ namespace ReservationService
         public Task<Reservation> CreateNewReservation(string userName, Guid bookId, Guid libId,
             DateTime startDate, DateTime tillDate);
         public Task<Reservation> CloseReservation(string userName, Guid reservationId, DateTime returnDate);
+        public Task DeleteReservation(Guid resId);
 
 
     }

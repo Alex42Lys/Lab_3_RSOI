@@ -18,7 +18,10 @@ namespace ReservationService
 
             return res;
         }
-
+        public async Task DeleteReservation(Guid id)
+        {
+            await _reservationRepository.DeleteReservation(id);
+        }
         public async Task<Reservation> CreateNewReservation(string userName, Guid bookId, Guid libId, DateTime tillDate)
         {
             var startDate = DateTime.Now;

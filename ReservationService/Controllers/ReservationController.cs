@@ -49,5 +49,14 @@ namespace ReservationService.Controllers
             var res = await _reservationService.CloseReservation(username, Guid.Parse(resId), Convert.ToDateTime(request.Date));
             return Ok(res);
         }
+        [HttpDelete("DeleteReservation")]
+        public async Task<ActionResult> DeleteReservation(string id)
+        {
+
+
+            await _reservationService.DeleteReservation(Guid.Parse(id));
+            return Ok();
+        }
+
     }
 }
