@@ -1,3 +1,4 @@
+using GatewayService;
 using GatewayService.Services;
 using System.Net;
 
@@ -10,8 +11,13 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHttpClient();
+builder.Services.Configure<RabbitMQOptions>(
+    builder.Configuration.GetSection("RabbitMQ"));
 builder.Services.AddSingleton<ServiceCircuitBreaker>(sp =>
     new ServiceCircuitBreaker(5, 10));
+builder.Services.AddSingleton<RabbitMQService>();
+builder.Services.AddHostedService<ReservationQueueProcessor>();
+
 var app = builder.Build();
 
 

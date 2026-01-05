@@ -15,13 +15,17 @@ namespace GatewayService.Controllers
     {
         private readonly HttpClient _httpClient;
         private readonly ServiceCircuitBreaker _circuitBreaker;
+        private readonly RabbitMQService _rabbitMQService;
 
         public LibrarySystemController(
             IHttpClientFactory httpClientFactory,
-            ServiceCircuitBreaker circuitBreaker)
+            ServiceCircuitBreaker circuitBreaker,
+            RabbitMQService rabbitMQService)
         {
             _httpClient = httpClientFactory.CreateClient();
             _circuitBreaker = circuitBreaker;
+            _rabbitMQService = rabbitMQService;
+
         }
 
         [HttpGet("libraries")]
@@ -355,27 +359,32 @@ namespace GatewayService.Controllers
             const string ratingService = "RatingService";
             const string libraryService = "LibraryService";
 
-            if (!_circuitBreaker.HasTimeOutPassed(reservationService))
-            {
-                return StatusCode(503, new ErrorResponse
-                {
-                    Message = "Bonus Service unavailable"
-                });
-            }
+            // Проверяем доступность всех сервисов
+            bool allServicesAvailable = _circuitBreaker.HasTimeOutPassed(reservationService) &&
+                                       _circuitBreaker.HasTimeOutPassed(ratingService) &&
+                                       _circuitBreaker.HasTimeOutPassed(libraryService);
 
-            if (!_circuitBreaker.HasTimeOutPassed(ratingService))
+            if (!allServicesAvailable)
             {
-                return StatusCode(503, new ErrorResponse
+                // Сохраняем запрос в очередь для отложенной обработки
+                var queueMessage = new
                 {
-                    Message = "Bonus Service unavailable"
-                });
-            }
+                    Type = "TakeBook",
+                    Request = takeBookRequest,
+                    UserName = Request.Headers["X-User-Name"].ToString(),
+                    Timestamp = DateTime.UtcNow,
+                    RetryCount = 0,
+                    MessageId = Guid.NewGuid()
+                };
 
-            if (!_circuitBreaker.HasTimeOutPassed(libraryService))
-            {
-                return StatusCode(503, new ErrorResponse
+                _rabbitMQService.SendMessage(queueMessage);
+
+                return Ok(new
                 {
-                    Message = "Bonus Service unavailable"
+                    message = "Запрос принят и будет обработан",
+                    status = "queued",
+                    queueId = queueMessage.MessageId,
+                    timestamp = DateTime.UtcNow
                 });
             }
 
@@ -391,28 +400,65 @@ namespace GatewayService.Controllers
                 HttpResponseMessage? response = null;
                 string? url = "";
                 HttpRequestMessage? request = null;
-                try { 
+                try
+                {
                     url = "http://reservation:8080/Reservation/AllReservations";
                     request = new HttpRequestMessage(HttpMethod.Get, url);
                     request.Headers.Add("X-User-Name", username.ToString());
 
                     response = await _httpClient.SendAsync(request);
-                
-                if (!response.IsSuccessStatusCode)
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        _circuitBreaker.AddRequest(reservationService);
+
+                        // Сохраняем запрос в очередь
+                        var queueMessage = new
+                        {
+                            Type = "TakeBook",
+                            Request = takeBookRequest,
+                            UserName = username.ToString(),
+                            Timestamp = DateTime.UtcNow,
+                            RetryCount = 0,
+                            MessageId = Guid.NewGuid(),
+                            FailedAt = "ReservationCheck"
+                        };
+
+                        _rabbitMQService.SendMessage(queueMessage);
+
+                        return Ok(new
+                        {
+                            message = "Запрос принят и будет обработан",
+                            status = "queued",
+                            queueId = queueMessage.MessageId,
+                            timestamp = DateTime.UtcNow
+                        });
+                    }
+                }
+                catch (HttpRequestException ex)
                 {
                     _circuitBreaker.AddRequest(reservationService);
-                    return StatusCode(503, new ErrorResponse
+
+                    var queueMessage = new
                     {
-                        Message = "Bonus Service unavailable"
-                    });
-                }
-                }
-                catch(HttpRequestException ex)
-                {
-                    _circuitBreaker.AddRequest(reservationService);
-                    return StatusCode(503, new ErrorResponse
+                        Type = "TakeBook",
+                        Request = takeBookRequest,
+                        UserName = username.ToString(),
+                        Timestamp = DateTime.UtcNow,
+                        RetryCount = 0,
+                        MessageId = Guid.NewGuid(),
+                        FailedAt = "ReservationCheck",
+                        Error = ex.Message
+                    };
+
+                    _rabbitMQService.SendMessage(queueMessage);
+
+                    return Ok(new
                     {
-                        Message = "Bonus Service unavailable"
+                        message = "Запрос принят и будет обработан",
+                        status = "queued",
+                        queueId = queueMessage.MessageId,
+                        timestamp = DateTime.UtcNow
                     });
                 }
                 var content = await response.Content.ReadAsStringAsync();
@@ -434,9 +480,26 @@ namespace GatewayService.Controllers
                 if (!response.IsSuccessStatusCode)
                 {
                     _circuitBreaker.AddRequest(ratingService);
-                    return StatusCode(503, new ErrorResponse
+
+                    var queueMessage = new
                     {
-                        Message = "Bonus Service unavailable"
+                        Type = "TakeBook",
+                        Request = takeBookRequest,
+                        UserName = username.ToString(),
+                        Timestamp = DateTime.UtcNow,
+                        RetryCount = 0,
+                        MessageId = Guid.NewGuid(),
+                        FailedAt = "RatingCheck"
+                    };
+
+                    _rabbitMQService.SendMessage(queueMessage);
+
+                    return Ok(new
+                    {
+                        message = "Запрос принят и будет обработан",
+                        status = "queued",
+                        queueId = queueMessage.MessageId,
+                        timestamp = DateTime.UtcNow
                     });
                 }
 
@@ -450,6 +513,7 @@ namespace GatewayService.Controllers
                         Message = "Too many rented books"
                     });
                 }
+
                 Reservation reservationResponse = null;
                 try
                 {
@@ -466,9 +530,26 @@ namespace GatewayService.Controllers
                     if (!respContent.IsSuccessStatusCode)
                     {
                         _circuitBreaker.AddRequest(reservationService);
-                        return StatusCode(503, new ErrorResponse
+
+                        var queueMessage = new
                         {
-                            Message = "Bonus Service unavailable"
+                            Type = "TakeBook",
+                            Request = takeBookRequest,
+                            UserName = username.ToString(),
+                            Timestamp = DateTime.UtcNow,
+                            RetryCount = 0,
+                            MessageId = Guid.NewGuid(),
+                            FailedAt = "CreateReservation"
+                        };
+
+                        _rabbitMQService.SendMessage(queueMessage);
+
+                        return Ok(new
+                        {
+                            message = "Запрос принят и будет обработан",
+                            status = "queued",
+                            queueId = queueMessage.MessageId,
+                            timestamp = DateTime.UtcNow
                         });
                     }
                     var responseContent = await respContent.Content.ReadAsStringAsync();
@@ -477,27 +558,65 @@ namespace GatewayService.Controllers
                 catch (HttpRequestException ex)
                 {
                     _circuitBreaker.AddRequest(reservationService);
-                    return StatusCode(503, new ErrorResponse
+
+                    var queueMessage = new
                     {
-                        Message = "Bonus Service unavailable"
+                        Type = "TakeBook",
+                        Request = takeBookRequest,
+                        UserName = username.ToString(),
+                        Timestamp = DateTime.UtcNow,
+                        RetryCount = 0,
+                        MessageId = Guid.NewGuid(),
+                        FailedAt = "CreateReservation",
+                        Error = ex.Message
+                    };
+
+                    _rabbitMQService.SendMessage(queueMessage);
+
+                    return Ok(new
+                    {
+                        message = "Запрос принят и будет обработан",
+                        status = "queued",
+                        queueId = queueMessage.MessageId,
+                        timestamp = DateTime.UtcNow
                     });
                 }
+
                 TakeBookResponse ans = null;
                 try
                 {
-
-
-                    url = $"http://library:8080/Library/changeCount?bookId={takeBookRequest.BookUid}libId={takeBookRequest.LibraryUid}delta={-1}";
+                    // Исправлена строка URL - добавлены разделители параметров &
+                    url = $"http://library:8080/Library/changeCount?bookId={takeBookRequest.BookUid}&libId={takeBookRequest.LibraryUid}&delta={-1}";
                     request = new HttpRequestMessage(HttpMethod.Get, url);
                     response = await _httpClient.SendAsync(request);
-                    content = await response.Content.ReadAsStringAsync();
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        // Если не удалось обновить количество книг, но резервация создана
+                        // Добавляем компенсирующую операцию в очередь
+                        var compensationMessage = new
+                        {
+                            Type = "Compensation",
+                            Action = "UpdateBookCount",
+                            ReservationUid = reservationResponse.ReservationUid,
+                            BookUid = takeBookRequest.BookUid,
+                            LibraryUid = takeBookRequest.LibraryUid,
+                            Delta = 1, // Возвращаем книгу обратно
+                            UserName = username.ToString(),
+                            Timestamp = DateTime.UtcNow,
+                            RetryCount = 0,
+                            MessageId = Guid.NewGuid()
+                        };
+
+                        _rabbitMQService.SendMessage(compensationMessage);
+                    }
 
                     var bookId = takeBookRequest.BookUid;
                     var libId = takeBookRequest.LibraryUid;
 
                     var bookUrl = $"http://library:8080/Library/GetBookByUuid?bookId={bookId}";
-                    var bookRequest = new HttpRequestMessage(HttpMethod.Get, bookUrl);
-                    var bookResponse = await _httpClient.SendAsync(bookRequest);
+                    var bookRequestMsg = new HttpRequestMessage(HttpMethod.Get, bookUrl);
+                    var bookResponse = await _httpClient.SendAsync(bookRequestMsg);
 
                     var bookContent = await bookResponse.Content.ReadAsStringAsync();
                     var bookInfo = JsonSerializer.Deserialize<BookInfo>(bookContent, options);
@@ -523,54 +642,99 @@ namespace GatewayService.Controllers
                 catch (HttpRequestException ex)
                 {
                     _circuitBreaker.AddRequest(libraryService);
-                    return StatusCode(503, new ErrorResponse
+
+                    // Если не удалось получить информацию о книге/библиотеке,
+                    // но резервация создана успешно, возвращаем ответ без деталей
+                    ans = new TakeBookResponse()
                     {
-                        Message = "Bonus Service unavailable"
-                    });
+                        ReservationUid = reservationResponse.ReservationUid.ToString(),
+                        Status = reservationResponse.Status,
+                        StartDate = reservationResponse.StartDate.ToString("yyyy-MM-dd"),
+                        TillDate = reservationResponse.TillDate.ToString("yyyy-MM-dd"),
+                        Rating = ratingResponse,
+                        Book = null,
+                        Library = null
+                    };
+
+                    // Добавляем задачу на получение деталей в очередь
+                    var getDetailsMessage = new
+                    {
+                        Type = "GetReservationDetails",
+                        ReservationUid = reservationResponse.ReservationUid,
+                        BookUid = takeBookRequest.BookUid,
+                        LibraryUid = takeBookRequest.LibraryUid,
+                        UserName = username.ToString(),
+                        Timestamp = DateTime.UtcNow,
+                        RetryCount = 0,
+                        MessageId = Guid.NewGuid()
+                    };
+
+                    _rabbitMQService.SendMessage(getDetailsMessage);
                 }
+
                 _circuitBreaker.Reset(reservationService);
                 _circuitBreaker.Reset(ratingService);
                 return Ok(ans);
             }
             catch (Exception ex)
             {
-                return StatusCode(503, new ErrorResponse
+                // Общая ошибка - сохраняем запрос в очередь
+                var queueMessage = new
                 {
-                    Message = "Bonus Service unavailable"
+                    Type = "TakeBook",
+                    Request = takeBookRequest,
+                    UserName = Request.Headers["X-User-Name"],
+                    Timestamp = DateTime.UtcNow,
+                    RetryCount = 0,
+                    MessageId = Guid.NewGuid(),
+                    FailedAt = "GeneralException",
+                    Error = ex.Message
+                };
+
+                _rabbitMQService.SendMessage(queueMessage);
+
+                return Ok(new
+                {
+                    message = "Запрос принят и будет обработан",
+                    status = "queued",
+                    queueId = queueMessage.MessageId,
+                    timestamp = DateTime.UtcNow
                 });
             }
         }
 
+
         [HttpPost("reservations/{reservationUid}/return")]
-        public async Task<ActionResult> ReturnBook
-            ([FromBody] ReturnBookRequest returnBookRequest, [FromRoute] Guid reservationUid)
+        public async Task<ActionResult> ReturnBook(
+           [FromBody] ReturnBookRequest returnBookRequest,
+           [FromRoute] Guid reservationUid)
         {
             const string reservationService = "ReservationService";
             const string ratingService = "RatingService";
             const string libraryService = "LibraryService";
 
-            if (!_circuitBreaker.HasTimeOutPassed(reservationService))
-            {
-                return StatusCode(503, new ErrorResponse
-                {
-                    Message = "Bonus Service unavailable"
-                });
-            }
+            // Проверяем доступность всех сервисов
+            bool allServicesAvailable = _circuitBreaker.HasTimeOutPassed(reservationService) &&
+                                       _circuitBreaker.HasTimeOutPassed(ratingService) &&
+                                       _circuitBreaker.HasTimeOutPassed(libraryService);
 
-            if (!_circuitBreaker.HasTimeOutPassed(ratingService))
+            if (!allServicesAvailable)
             {
-                return StatusCode(503, new ErrorResponse
+                // Сохраняем запрос на возврат в очередь
+                var queueMessage = new
                 {
-                    Message = "Bonus Service unavailable"
-                });
-            }
+                    Type = "ReturnBook",
+                    ReservationUid = reservationUid,
+                    Request = returnBookRequest,
+                    UserName = Request.Headers["X-User-Name"].ToString(),
+                    Timestamp = DateTime.UtcNow,
+                    RetryCount = 0,
+                    MessageId = Guid.NewGuid()
+                };
 
-            if (!_circuitBreaker.HasTimeOutPassed(libraryService))
-            {
-                return StatusCode(503, new ErrorResponse
-                {
-                    Message = "Bonus Service unavailable"
-                });
+                _rabbitMQService.SendMessage(queueMessage);
+
+                return NoContent(); // 204 No Content
             }
 
             try
@@ -582,12 +746,14 @@ namespace GatewayService.Controllers
                         Message = "X-User-Name header is required"
                     });
                 }
+
                 var options = new JsonSerializerOptions
                 {
                     PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
                     PropertyNameCaseInsensitive = true
                 };
 
+                // Закрытие резервации
                 var url = $"http://reservation:8080/Reservation/CloseReservation?resId={reservationUid.ToString()}";
                 var json = JsonSerializer.Serialize(returnBookRequest);
                 var reqContent = new StringContent(json, Encoding.UTF8, "application/json");
@@ -601,24 +767,65 @@ namespace GatewayService.Controllers
                 if (!respContent.IsSuccessStatusCode)
                 {
                     _circuitBreaker.AddRequest(reservationService);
-                    return StatusCode(503, new ErrorResponse
+
+                    var queueMessage = new
                     {
-                        Message = "Bonus Service unavailable"
-                    });
+                        Type = "ReturnBook",
+                        ReservationUid = reservationUid,
+                        Request = returnBookRequest,
+                        UserName = username.ToString(),
+                        Timestamp = DateTime.UtcNow,
+                        RetryCount = 0,
+                        MessageId = Guid.NewGuid(),
+                        FailedAt = "CloseReservation"
+                    };
+
+                    _rabbitMQService.SendMessage(queueMessage);
+
+                    return NoContent(); // 204 No Content
                 }
+
                 var responseContent = await respContent.Content.ReadAsStringAsync();
                 var reservationResponse = JsonSerializer.Deserialize<Reservation>(responseContent, options);
 
                 var bookId = reservationResponse.BookUid;
 
+                // Проверка состояния книги
                 var bookUrl = $"http://library:8080/Library/GetBookConditionByUuid?bookId={bookId}";
                 var bookRequest = new HttpRequestMessage(HttpMethod.Get, bookUrl);
                 var bookResponse = await _httpClient.SendAsync(bookRequest);
+
+                if (!bookResponse.IsSuccessStatusCode)
+                {
+                    // Если не удалось проверить состояние книги,
+                    // добавляем отложенную операцию обновления рейтинга
+                    var queueMessage = new
+                    {
+                        Type = "DelayedRatingUpdate",
+                        ReservationUid = reservationUid,
+                        UserName = username.ToString(),
+                        BookUid = bookId,
+                        Timestamp = DateTime.UtcNow,
+                        FailedAt = "GetBookCondition",
+                        RetryCount = 0,
+                        MessageId = Guid.NewGuid()
+                    };
+
+                    _rabbitMQService.SendMessage(queueMessage);
+
+                    _circuitBreaker.Reset(reservationService);
+                    _circuitBreaker.Reset(ratingService);
+                    _circuitBreaker.Reset(libraryService);
+
+                    return NoContent(); // 204 No Content
+                }
 
                 var bookContent = await bookResponse.Content.ReadAsStringAsync();
                 var book = JsonSerializer.Deserialize<Book>(bookContent, options);
 
                 var deltaRating = 0;
+                var conditionChanged = false;
+
                 if (reservationResponse.Status == "RETURNED" && returnBookRequest.Condition == book.Condition)
                 {
                     deltaRating += 1;
@@ -630,31 +837,79 @@ namespace GatewayService.Controllers
                 if (returnBookRequest.Condition != book.Condition)
                 {
                     deltaRating -= 10;
-                    url = $"http://library:8080/Library/changeCondition?bookId={book.BookUid}condition={returnBookRequest.Condition}";
+                    conditionChanged = true;
+
+                    url = $"http://library:8080/Library/changeCondition?bookId={book.BookUid}&condition={returnBookRequest.Condition}";
                     var request = new HttpRequestMessage(HttpMethod.Get, url);
                     var response = await _httpClient.SendAsync(request);
-                    var content = await response.Content.ReadAsStringAsync();
-                    var changeConditionresponse = JsonSerializer.Deserialize<string>(content, options);
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        // Если не удалось обновить состояние книги, добавляем в очередь
+                        var queueMessage = new
+                        {
+                            Type = "UpdateBookCondition",
+                            BookUid = book.BookUid,
+                            Condition = returnBookRequest.Condition,
+                            Timestamp = DateTime.UtcNow,
+                            RetryCount = 0,
+                            MessageId = Guid.NewGuid()
+                        };
+
+                        _rabbitMQService.SendMessage(queueMessage);
+                    }
                 }
 
+                // Обновление рейтинга
                 url = $"http://rating:8080/Rating/changeRating?delta={deltaRating}";
-                var re = new HttpRequestMessage(HttpMethod.Post, url);
-                re.Headers.Add("X-User-Name", username.ToString());
-                var rrp = await _httpClient.SendAsync(re);
+                var ratingRequest = new HttpRequestMessage(HttpMethod.Post, url);
+                ratingRequest.Headers.Add("X-User-Name", username.ToString());
+                var ratingResp = await _httpClient.SendAsync(ratingRequest);
+
+                if (!ratingResp.IsSuccessStatusCode)
+                {
+                    // Если не удалось обновить рейтинг, добавляем в очередь
+                    var queueMessage = new
+                    {
+                        Type = "UpdateRating",
+                        UserName = username.ToString(),
+                        DeltaRating = deltaRating,
+                        Timestamp = DateTime.UtcNow,
+                        Reason = conditionChanged ? "ConditionChanged" : "NormalReturn",
+                        RetryCount = 0,
+                        MessageId = Guid.NewGuid()
+                    };
+
+                    _rabbitMQService.SendMessage(queueMessage);
+                }
 
                 _circuitBreaker.Reset(reservationService);
                 _circuitBreaker.Reset(ratingService);
                 _circuitBreaker.Reset(libraryService);
-                return StatusCode(204);
+
+                return NoContent(); // 204 No Content
             }
             catch (Exception ex)
             {
                 _circuitBreaker.AddRequest(reservationService);
 
-                return StatusCode(503, new ErrorResponse
+                // Сохраняем запрос на возврат в очередь при общей ошибке
+                var queueMessage = new
                 {
-                    Message = ex.Message
-                });
+                    Type = "ReturnBook",
+                    ReservationUid = reservationUid,
+                    Request = returnBookRequest,
+                    UserName = Request.Headers["X-User-Name"],
+                    Timestamp = DateTime.UtcNow,
+                    RetryCount = 0,
+                    MessageId = Guid.NewGuid(),
+                    FailedAt = "GeneralException",
+                    Error = ex.Message
+                };
+
+                _rabbitMQService.SendMessage(queueMessage);
+
+                return NoContent(); // 204 No Content
             }
         }
     }
