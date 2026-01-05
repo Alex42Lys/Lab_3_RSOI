@@ -13,25 +13,17 @@ services:
       - ./postgres/:/docker-entrypoint-initdb.d/
     ports:
       - "5432:5432"
-
+  
   rabbitmq:
-    image: rabbitmq:3.12-management-alpine
+    image: rabbitmq:3-management
     container_name: rabbitmq
-    restart: unless-stopped
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
-      RABBITMQ_DEFAULT_VHOST: /
     ports:
-      - "5672:5672"    # AMQP порт для подключения приложений
-    volumes:
-      - rabbitmq-data:/var/lib/rabbitmq
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 40s
+      - "5672:5672"
+      - "15672:15672"
+
   reservation:
     build:
       context: ./ReservationService
@@ -41,8 +33,6 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ConnectionStrings__DefaultConnection=Server=postgres;Port=5432;Database=reservations;Username=postgres;Password=postgres;
-    depends_on:
-      - postgres
 
   library:
     build:
@@ -53,8 +43,6 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ConnectionStrings__DefaultConnection=Server=postgres;Port=5432;Username=postgres;Password=postgres;Database=libraries;
-    depends_on:
-      - postgres
 
   rating:
     build:
@@ -65,8 +53,6 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ConnectionStrings__DefaultConnection=Server=postgres;Port=5432;Database=ratings;Username=postgres;Password=postgres;
-    depends_on:
-      - postgres
 
   gateway:
     build:
@@ -79,11 +65,16 @@ services:
       - LibraryService__BaseUrl=http://library:8080/
       - RatingService__BaseUrl=http://rating:8080/
       - ReservationService__BaseUrl=http://reservation:8080/
+      - RabbitMQ__HostName=rabbitmq
+      - RabbitMQ__Port=5672
+      - RabbitMQ__UserName=guest
+      - RabbitMQ__Password=guest
+      - RabbitMQ__QueueName=reservation_queue
     depends_on:
       - reservation  
       - rating
       - library
+      - rabbitmq
 
 volumes:
   db-data:
-  rabbitmq-data:
