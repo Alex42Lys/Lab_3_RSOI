@@ -186,7 +186,7 @@ namespace GatewayService.Controllers
                 {
                    _circuitBreaker.AddRequest(serviceName);
 
-                    return StatusCode(503, ex.Message);
+                    return StatusCode(503, "Bonuse service unavailable");
                 }
 
             }
