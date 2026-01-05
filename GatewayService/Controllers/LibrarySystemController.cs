@@ -145,16 +145,51 @@ namespace GatewayService.Controllers
 
             public async Task<ActionResult> GetUserRating()
             {
-            try
+                const string serviceName = "RatingService";
+
+            if (!_circuitBreaker.HasTimeOutPassed(serviceName))
             {
-                throw new Exception("Test exception");
-            }
-            catch
-            {
-                return StatusCode(503);
+                return StatusCode(503, "Rating service is temporarily unavailable");
             }
 
-        }
+            try
+                {
+                    if (!Request.Headers.TryGetValue("X-User-Name", out var username))
+                    {
+                        return BadRequest("X-User-Name header is required");
+                    }
+
+                    var url = "http://rating:8080/Rating/rating";
+                    var request = new HttpRequestMessage(HttpMethod.Get, url);
+                    request.Headers.Add("X-User-Name", username.ToString());
+
+                    var response = await _httpClient.SendAsync(request);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    _circuitBreaker.AddRequest(serviceName);
+                    return StatusCode(503, "Error fetching rating");
+                }
+
+                var content = await response.Content.ReadAsStringAsync();
+                    var options = new JsonSerializerOptions
+                    {
+                        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                        PropertyNameCaseInsensitive = true
+                    };
+
+                    var ratingResponse = JsonSerializer.Deserialize<UserRatingResponse>(content, options);
+                    _circuitBreaker.Reset(serviceName);
+                    return Ok(ratingResponse);
+                }
+                catch (HttpRequestException ex)
+                {
+                   _circuitBreaker.AddRequest(serviceName);
+
+                    return StatusCode(503, ex.Message);
+                }
+
+            }
 
         [HttpGet("reservations")]
         public async Task<ActionResult> GetAllUserReservations()
