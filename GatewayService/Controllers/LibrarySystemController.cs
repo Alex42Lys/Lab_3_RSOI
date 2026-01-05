@@ -536,7 +536,7 @@ namespace GatewayService.Controllers
             {
                 return StatusCode(503, new ErrorResponse
                 {
-                    Message = ex.Message
+                    Message = "Bonus Service unavailable"
                 });
             }
         }
