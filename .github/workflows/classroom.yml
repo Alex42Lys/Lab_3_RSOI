@@ -54,7 +54,21 @@ jobs:
           user_column: 'D'
           column_offset: 'F'
           mark: "'+"
+      - name: Get Gateway logs
+        if: always()  
+        run: docker compose logs gateway
 
+      - name: Get Library logs  
+        if: always()
+        run: docker compose logs library
+
+      - name: Get postgres logs  
+        if: always()
+        run: docker compose logs postgres
+
+      - name: Get all services logs
+        if: always()
+        run: docker compose logs
       - name: Stop containers
         if: always()
         continue-on-error: true
