@@ -83,60 +83,48 @@ public class QueueProcessorService : BackgroundService
     }
 
     // Метод для обработки обновления рейтинга
+    // В классе ReservationQueueProcessor
+
     private async Task<bool> ProcessUpdateRating(dynamic message)
     {
         try
         {
             var url = $"http://rating:8080/Rating/changeRating?delta={message.DeltaRating}";
             var request = new HttpRequestMessage(HttpMethod.Post, url);
-            request.Headers.Add("X-User-Name", message.UserName);
+            request.Headers.Add("X-User-Name", message.UserName.ToString());
 
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            var response = await _httpClient.SendAsync(request, cts.Token);
-
-            if (response.IsSuccessStatusCode)
+            // Таймаут 10 секунд ТОЛЬКО при повторных попытках
+            int retryCount = message.RetryCount ?? 0;
+            if (retryCount > 0)
             {
-                _logger.LogInformation($"Успешно обновлен рейтинг для пользователя: {message.UserName}");
-                return true;
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                var response = await _httpClient.SendAsync(request, cts.Token);
+
+                if (response.IsSuccessStatusCode)
+                {
+
+                    return true;
+                }
             }
             else
             {
-                _logger.LogWarning($"Не удалось обновить рейтинг для пользователя: {message.UserName}");
-                return false;
+                // Первая попытка - без таймаута
+                var response = await _httpClient.SendAsync(request);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    return true;
+                }
             }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, $"Ошибка при обновлении рейтинга для пользователя: {message.UserName}");
+
             return false;
         }
-    }
-
-    // Метод для обработки обновления состояния книги
-    private async Task<bool> ProcessUpdateBookCondition(dynamic message)
-    {
-        try
+        catch (OperationCanceledException)
         {
-            var url = $"http://library:8080/Library/changeCondition?bookId={message.BookUid}&condition={message.Condition}";
-            var request = new HttpRequestMessage(HttpMethod.Get, url);
-
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            var response = await _httpClient.SendAsync(request, cts.Token);
-
-            if (response.IsSuccessStatusCode)
-            {
-                _logger.LogInformation($"Успешно обновлено состояние книги: {message.BookUid}");
-                return true;
-            }
-            else
-            {
-                _logger.LogWarning($"Не удалось обновить состояние книги: {message.BookUid}");
-                return false;
-            }
+            return false;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"Ошибка при обновлении состояния книги: {message.BookUid}");
             return false;
         }
     }

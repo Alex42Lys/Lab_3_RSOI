@@ -640,18 +640,36 @@ namespace GatewayService.Controllers
                             await UpdateBookCondition(book.BookUid, returnBookRequest.Condition);
                         }
                     }
+                    else
+                    {
+                        // Если не удалось получить состояние книги, добавляем в очередь
+                        await QueueUpdateBookCondition(bookId, returnBookRequest.Condition, deltaRating);
+                    }
                 }
                 catch (Exception ex)
                 {
-                    // Если не удалось получить состояние книги, продолжаем выполнение
-                    Console.WriteLine($"Не удалось получить состояние книги: {ex.Message}");
+                    // Если не удалось получить состояние книги, добавляем в очередь
+                    await QueueUpdateBookCondition(bookId, returnBookRequest.Condition, deltaRating);
                 }
 
-                // 3. Увеличение количества доступных книг (ставим в очередь при недоступности)
-                await ProcessBookCountUpdate(libraryUid, bookId);
+                // 3. Увеличение количества доступных книг
+                var bookCountSuccess = await IncreaseBookCount(libraryUid, bookId);
+                if (!bookCountSuccess)
+                {
+                    // Ставим в очередь для повторной попытки
+                    QueueIncreaseBookCount(libraryUid, bookId);
+                }
 
-                // 4. Изменение рейтинга пользователя (ставим в очередь при недоступности)
-                await ProcessRatingUpdate(username.ToString(), deltaRating);
+                // 4. Изменение рейтинга пользователя (только если deltaRating != 0)
+                if (deltaRating != 0)
+                {
+                    var ratingSuccess = await UpdateRating(username.ToString(), deltaRating);
+                    if (!ratingSuccess)
+                    {
+                        // Ставим в очередь для повторной попытки
+                        QueueUpdateRating(username.ToString(), deltaRating);
+                    }
+                }
 
                 // Сбрасываем circuit breaker для сервисов
                 _circuitBreaker.Reset(reservationService);
@@ -671,188 +689,133 @@ namespace GatewayService.Controllers
             }
         }
 
-        // Метод для обновления состояния книги
-        private async Task UpdateBookCondition(Guid bookUid, string condition)
+        // Основной метод для обновления состояния книги (без таймаута при первом вызове)
+        private async Task<bool> UpdateBookCondition(Guid bookUid, string condition)
         {
             try
             {
                 var url = $"http://library:8080/Library/changeCondition?bookId={bookUid}&condition={condition}";
                 var request = new HttpRequestMessage(HttpMethod.Get, url);
 
-                // Таймаут 10 секунд
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-                var response = await _httpClient.SendAsync(request, cts.Token);
+                var response = await _httpClient.SendAsync(request);
 
-                if (!response.IsSuccessStatusCode)
+                if (response.IsSuccessStatusCode)
                 {
-                    // Добавляем в очередь для повторной попытки
-                    var queueMessage = new
-                    {
-                        Type = "UpdateBookCondition",
-                        BookUid = bookUid,
-                        Condition = condition,
-                        Timestamp = DateTime.UtcNow,
-                        RetryCount = 0
-                    };
-
-                    _rabbitMQService.SendMessage(queueMessage);
+                    return true;
                 }
-            }
-            catch (OperationCanceledException)
-            {
-                // Таймаут - добавляем в очередь
-                var queueMessage = new
+                else
                 {
-                    Type = "UpdateBookCondition",
-                    BookUid = bookUid,
-                    Condition = condition,
-                    Timestamp = DateTime.UtcNow,
-                    RetryCount = 0,
-                    Reason = "Timeout"
-                };
-
-                _rabbitMQService.SendMessage(queueMessage);
+                    // Не удалось - ставим в очередь для повторной попытки с таймаутом
+                    return false;
+                }
             }
             catch (Exception ex)
             {
-                // Другая ошибка - добавляем в очередь
-                var queueMessage = new
-                {
-                    Type = "UpdateBookCondition",
-                    BookUid = bookUid,
-                    Condition = condition,
-                    Timestamp = DateTime.UtcNow,
-                    RetryCount = 0,
-                    Error = ex.Message
-                };
-
-                _rabbitMQService.SendMessage(queueMessage);
+                Console.WriteLine($"Ошибка при обновлении состояния книги: {ex.Message}");
+                return false;
             }
         }
 
-        // Метод для обработки увеличения количества книг
-        private async Task ProcessBookCountUpdate(Guid libraryUid, Guid bookUid)
+        // Метод для постановки обновления состояния книги в очередь
+        private async Task QueueUpdateBookCondition(Guid bookUid, string condition, int deltaRating)
+        {
+            var queueMessage = new
+            {
+                Type = "UpdateBookCondition",
+                BookUid = bookUid,
+                Condition = condition,
+                DeltaRating = deltaRating, // Сохраняем deltaRating для обновления рейтинга
+                Timestamp = DateTime.UtcNow,
+                RetryCount = 0
+            };
+
+            _rabbitMQService.SendMessage(queueMessage);
+        }
+
+        // Основной метод для увеличения количества книг (без таймаута при первом вызове)
+        private async Task<bool> IncreaseBookCount(Guid libraryUid, Guid bookUid)
         {
             try
             {
                 var url = $"http://library:8080/Library/changeCount?bookId={bookUid}&libId={libraryUid}&delta=1";
                 var request = new HttpRequestMessage(HttpMethod.Get, url);
 
-                // Таймаут 10 секунд
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-                var response = await _httpClient.SendAsync(request, cts.Token);
+                var response = await _httpClient.SendAsync(request);
 
-                if (!response.IsSuccessStatusCode)
+                if (response.IsSuccessStatusCode)
                 {
-                    // Добавляем в очередь для повторной попытки
-                    var queueMessage = new
-                    {
-                        Type = "IncreaseBookCount",
-                        BookUid = bookUid,
-                        LibraryUid = libraryUid,
-                        Delta = 1, // Увеличиваем количество
-                        Timestamp = DateTime.UtcNow,
-                        RetryCount = 0
-                    };
-
-                    _rabbitMQService.SendMessage(queueMessage);
+                    return true;
                 }
-            }
-            catch (OperationCanceledException)
-            {
-                // Таймаут - добавляем в очередь
-                var queueMessage = new
+                else
                 {
-                    Type = "IncreaseBookCount",
-                    BookUid = bookUid,
-                    LibraryUid = libraryUid,
-                    Delta = 1,
-                    Timestamp = DateTime.UtcNow,
-                    RetryCount = 0,
-                    Reason = "Timeout"
-                };
-
-                _rabbitMQService.SendMessage(queueMessage);
+                    // Не удалось - возвращаем false для постановки в очередь
+                    return false;
+                }
             }
             catch (Exception ex)
             {
-                // Другая ошибка - добавляем в очередь
-                var queueMessage = new
-                {
-                    Type = "IncreaseBookCount",
-                    BookUid = bookUid,
-                    LibraryUid = libraryUid,
-                    Delta = 1,
-                    Timestamp = DateTime.UtcNow,
-                    RetryCount = 0,
-                    Error = ex.Message
-                };
-
-                _rabbitMQService.SendMessage(queueMessage);
+                Console.WriteLine($"Ошибка при увеличении количества книг: {ex.Message}");
+                return false;
             }
         }
 
-        // Метод для обработки обновления рейтинга
-        private async Task ProcessRatingUpdate(string username, int deltaRating)
+        // Метод для постановки увеличения количества книг в очередь
+        private void QueueIncreaseBookCount(Guid libraryUid, Guid bookUid)
         {
-            // Если deltaRating = 0, не обновляем рейтинг
-            if (deltaRating == 0) return;
+            var queueMessage = new
+            {
+                Type = "IncreaseBookCount",
+                BookUid = bookUid,
+                LibraryUid = libraryUid,
+                Delta = 1,
+                Timestamp = DateTime.UtcNow,
+                RetryCount = 0
+            };
 
+            _rabbitMQService.SendMessage(queueMessage);
+        }
+
+        // Основной метод для обновления рейтинга (без таймаута при первом вызове)
+        private async Task<bool> UpdateRating(string username, int deltaRating)
+        {
             try
             {
                 var url = $"http://rating:8080/Rating/changeRating?delta={deltaRating}";
                 var request = new HttpRequestMessage(HttpMethod.Post, url);
                 request.Headers.Add("X-User-Name", username);
 
-                // Таймаут 10 секунд
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-                var response = await _httpClient.SendAsync(request, cts.Token);
+                var response = await _httpClient.SendAsync(request);
 
-                if (!response.IsSuccessStatusCode)
+                if (response.IsSuccessStatusCode)
                 {
-                    // Добавляем в очередь для повторной попытки
-                    var queueMessage = new
-                    {
-                        Type = "UpdateRating",
-                        UserName = username,
-                        DeltaRating = deltaRating,
-                        Timestamp = DateTime.UtcNow,
-                        RetryCount = 0
-                    };
-
-                    _rabbitMQService.SendMessage(queueMessage);
+                    return true;
                 }
-            }
-            catch (OperationCanceledException)
-            {
-                // Таймаут - добавляем в очередь
-                var queueMessage = new
+                else
                 {
-                    Type = "UpdateRating",
-                    UserName = username,
-                    DeltaRating = deltaRating,
-                    Timestamp = DateTime.UtcNow,
-                    RetryCount = 0,
-                    Reason = "Timeout"
-                };
-
-                _rabbitMQService.SendMessage(queueMessage);
+                    // Не удалось - возвращаем false для постановки в очередь
+                    return false;
+                }
             }
             catch (Exception ex)
             {
-                // Другая ошибка - добавляем в очередь
-                var queueMessage = new
-                {
-                    Type = "UpdateRating",
-                    UserName = username,
-                    DeltaRating = deltaRating,
-                    Timestamp = DateTime.UtcNow,
-                    RetryCount = 0,
-                    Error = ex.Message
-                };
-
-                _rabbitMQService.SendMessage(queueMessage);
+                Console.WriteLine($"Ошибка при обновлении рейтинга: {ex.Message}");
+                return false;
             }
+        }
+
+        // Метод для постановки обновления рейтинга в очередь
+        private void QueueUpdateRating(string username, int deltaRating)
+        {
+            var queueMessage = new
+            {
+                Type = "UpdateRating",
+                UserName = username,
+                DeltaRating = deltaRating,
+                Timestamp = DateTime.UtcNow,
+                RetryCount = 0
+            };
+
+            _rabbitMQService.SendMessage(queueMessage);
         }
 
     }
