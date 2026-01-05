@@ -53,7 +53,6 @@ namespace ReservationService.Controllers
         public async Task<ActionResult> DeleteReservation(string id)
         {
 
-
             await _reservationService.DeleteReservation(Guid.Parse(id));
             return Ok();
         }
