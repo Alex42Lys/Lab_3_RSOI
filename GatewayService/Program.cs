@@ -14,9 +14,9 @@ builder.Services.AddHttpClient();
 
 builder.Services.AddSingleton<ServiceCircuitBreaker>(sp =>
     new ServiceCircuitBreaker(5, 10));
-//builder.Services.AddHostedService<RequestQueueService>();
-//builder.Services.AddSingleton<IRequestQueueService>(sp =>
-//    sp.GetServices<IHostedService>().OfType<RequestQueueService>().First());
+builder.Services.AddHostedService<RequestQueueService>();
+builder.Services.AddSingleton<IRequestQueueService>(sp =>
+    sp.GetServices<IHostedService>().OfType<RequestQueueService>().First());
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.

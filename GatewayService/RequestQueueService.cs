@@ -26,11 +26,15 @@ public class RequestQueueService : BackgroundService, IRequestQueueService
     {
 
         Thread.Sleep(10 * 1000);
-        var m = _circuitBreaker.queue.FirstOrDefault();
-        var url = $"http://rating:8080/Rating/changeRating?delta={m.dlt}";
-        var re = new HttpRequestMessage(HttpMethod.Post, url);
-        re.Headers.Add("X-User-Name", m.Usr);
-        var rrp = await _httpClient.SendAsync(re);
+        if(_circuitBreaker.queue.Count > 0)
+        {
+            var m = _circuitBreaker.queue.FirstOrDefault();
+            var url = $"http://rating:8080/Rating/changeRating?delta={m.dlt}";
+            var re = new HttpRequestMessage(HttpMethod.Post, url);
+            re.Headers.Add("X-User-Name", m.Usr);
+            var rrp = await _httpClient.SendAsync(re);
+        }
+
     }
 
 
