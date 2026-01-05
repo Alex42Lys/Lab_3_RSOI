@@ -15,7 +15,7 @@ public class RequestQueueService : BackgroundService, IRequestQueueService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
 
-        var factory = new ConnectionFactory { HostName = "localhost", UserName = "guest", Password = "guest" };
+        var factory = new ConnectionFactory { HostName = "rabbitmq", UserName = "guest", Password = "guest" };
         using var connection = await factory.CreateConnectionAsync();
         using var channel = await connection.CreateChannelAsync();
 
