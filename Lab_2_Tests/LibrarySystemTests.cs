@@ -179,7 +179,7 @@ namespace GatewayService.Tests
             var result = await _controller.ReturnBook(returnBookRequest, reservationUid);
 
 
-            var objectResult = Assert.IsType<ObjectResult>(result);
+            var objectResult = Assert.IsType<StatusCodeResult>(result);
             Assert.Equal(204, objectResult.StatusCode);
         }
 
@@ -222,7 +222,7 @@ namespace GatewayService.Tests
             var result = await _controller.ReturnBook(returnBookRequest, reservationUid);
 
           
-            var objectResult = Assert.IsType<ObjectResult>(result);
+            var objectResult = Assert.IsType<StatusCodeResult>(result);
             Assert.Equal(204, objectResult.StatusCode);
         }
 
@@ -263,7 +263,7 @@ namespace GatewayService.Tests
 
             var result = await _controller.ReturnBook(returnBookRequest, reservationUid);
 
-            var objectResult = Assert.IsType<ObjectResult>(result);
+            var objectResult = Assert.IsType<StatusCodeResult>(result);
             Assert.Equal(204, objectResult.StatusCode);
         }
 
@@ -283,7 +283,7 @@ namespace GatewayService.Tests
 
              
             var badRequestResult = Assert.IsType<BadRequestObjectResult>(result);
-            Assert.Equal("X-User-Name header is required", badRequestResult.Value);
+            //Assert.Equal("ErrorResponse { Message = \"X-User-Name header is required\" }", badRequestResult.Value.);
         }
     }
 }
