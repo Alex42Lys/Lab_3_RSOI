@@ -21,7 +21,7 @@ namespace GatewayService.Services
             _breakDurationSeconds = breakDurationSeconds;
         }
 
-        public bool CanMakeRequest(string serviceName)
+        public bool HasTimeOutPassed(string serviceName)
         {
             var state = GetOrCreateState(serviceName);
 
@@ -31,46 +31,33 @@ namespace GatewayService.Services
                 {
                     return false;
                 }
+                else
+                    return true;
 
-                if (state.BreakUntil.HasValue && DateTime.UtcNow >= state.BreakUntil.Value)
-                {
-                    state.BreakUntil = null;
-                }
-
-                return state.CurrentRequests < _maxRequestsPerService;
             }
         }
 
-        public bool TryStartRequest(string serviceName)
+        public void AddRequest(string serviceName)
         {
             var state = GetOrCreateState(serviceName);
 
             lock (_lock)
             {
-                if (state.BreakUntil.HasValue && DateTime.UtcNow < state.BreakUntil.Value)
-                {
-                    return false;
-                }
-
                 if (state.CurrentRequests >= _maxRequestsPerService)
                 {
                     state.BreakUntil = DateTime.UtcNow.AddSeconds(_breakDurationSeconds);
-                    return false;
                 }
 
                 state.CurrentRequests++;
-                return true;
             }
         }
 
-        public void EndRequest(string serviceName)
+        public void Reset(string serviceName)
         {
             var state = GetOrCreateState(serviceName);
 
             lock (_lock)
             {
-                state.CurrentRequests--;
-                if (state.CurrentRequests < 0)
                     state.CurrentRequests = 0;
             }
         }

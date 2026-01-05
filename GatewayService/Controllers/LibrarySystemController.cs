@@ -32,7 +32,7 @@ namespace GatewayService.Controllers
         {
             const string serviceName = "LibraryService";
 
-            if (!_circuitBreaker.TryStartRequest(serviceName))
+            if (!_circuitBreaker.HasTimeOutPassed(serviceName))
             {
                 return StatusCode(503, new
                 {
@@ -60,7 +60,9 @@ namespace GatewayService.Controllers
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    return StatusCode((int)response.StatusCode, "Error fetching libraries");
+                    _circuitBreaker.AddRequest(serviceName);
+
+                    return StatusCode(503, "Error fetching libraries");
                 }
 
                 var content = await response.Content.ReadAsStringAsync();
@@ -71,16 +73,14 @@ namespace GatewayService.Controllers
                 };
 
                 var libraryResponse = JsonSerializer.Deserialize<LibraryPaginationResponse>(content, options);
+                _circuitBreaker.Reset(serviceName);
                 return Ok(libraryResponse);
             }
             catch (Exception ex)
             {
                 return StatusCode(500, ex.Message);
             }
-            finally
-            {
-                _circuitBreaker.EndRequest(serviceName);
-            }
+
         }
 
         [HttpGet("libraries/{libraryUid}/books")]
@@ -92,7 +92,7 @@ namespace GatewayService.Controllers
         {
             const string serviceName = "LibraryService";
 
-            if (!_circuitBreaker.TryStartRequest(serviceName))
+            if (!_circuitBreaker.HasTimeOutPassed(serviceName))
             {
                 return StatusCode(503, "Library service is temporarily unavailable");
             }
@@ -116,7 +116,9 @@ namespace GatewayService.Controllers
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    return StatusCode((int)response.StatusCode, "Error fetching libraries");
+                    _circuitBreaker.AddRequest(serviceName);
+
+                    return StatusCode(503, "Error fetching libraries");
                 }
 
                 var content = await response.Content.ReadAsStringAsync();
@@ -127,16 +129,15 @@ namespace GatewayService.Controllers
                 };
 
                 var libraryResponse = JsonSerializer.Deserialize<LibraryBookPaginationResponse>(content, options);
+                _circuitBreaker.Reset(serviceName);
+
                 return Ok(libraryResponse);
             }
             catch (Exception ex)
             {
                 return StatusCode(500, ex.Message);
             }
-            finally
-            {
-                _circuitBreaker.EndRequest(serviceName);
-            }
+
         }
 
         [HttpGet("rating")]
@@ -144,7 +145,7 @@ namespace GatewayService.Controllers
         {
             const string serviceName = "RatingService";
 
-            if (!_circuitBreaker.TryStartRequest(serviceName))
+            if (!_circuitBreaker.HasTimeOutPassed(serviceName))
             {
                 return StatusCode(503, "Rating service is temporarily unavailable");
             }
@@ -164,7 +165,8 @@ namespace GatewayService.Controllers
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    return StatusCode((int)response.StatusCode, "Error fetching rating");
+                    _circuitBreaker.AddRequest(serviceName);
+                    return StatusCode(503, "Error fetching rating");
                 }
 
                 var content = await response.Content.ReadAsStringAsync();
@@ -175,16 +177,14 @@ namespace GatewayService.Controllers
                 };
 
                 var ratingResponse = JsonSerializer.Deserialize<UserRatingResponse>(content, options);
+                _circuitBreaker.Reset(serviceName);
                 return Ok(ratingResponse);
             }
             catch (Exception ex)
             {
                 return StatusCode(500, ex.Message);
             }
-            finally
-            {
-                _circuitBreaker.EndRequest(serviceName);
-            }
+
         }
 
         [HttpGet("reservations")]
@@ -193,7 +193,7 @@ namespace GatewayService.Controllers
             const string reservationService = "ReservationService";
             const string libraryService = "LibraryService";
 
-            if (!_circuitBreaker.TryStartRequest(reservationService))
+            if (!_circuitBreaker.HasTimeOutPassed(reservationService))
             {
                 return StatusCode(503, "Reservation service is temporarily unavailable");
             }
@@ -213,7 +213,8 @@ namespace GatewayService.Controllers
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    return StatusCode((int)response.StatusCode, "Error fetching reservations");
+                    _circuitBreaker.AddRequest(reservationService);
+                    return StatusCode(503, "Error fetching reservations");
                 }
 
                 var content = await response.Content.ReadAsStringAsync();
@@ -228,12 +229,11 @@ namespace GatewayService.Controllers
 
                 foreach (var reservation in reservations)
                 {
-                    if (!_circuitBreaker.TryStartRequest(libraryService))
+                    if (!_circuitBreaker.HasTimeOutPassed(libraryService))
                     {
                         continue;
                     }
 
-                    try
                     {
                         var bookId = reservation.BookUid;
                         var libId = reservation.LibraryUid;
@@ -264,22 +264,16 @@ namespace GatewayService.Controllers
 
                         result.Add(reservationResponse);
                     }
-                    finally
-                    {
-                        _circuitBreaker.EndRequest(libraryService);
-                    }
-                }
 
+                }
+                _circuitBreaker.Reset(reservationService);
                 return Ok(result);
             }
             catch (Exception ex)
             {
                 return StatusCode(500, ex.Message);
             }
-            finally
-            {
-                _circuitBreaker.EndRequest(reservationService);
-            }
+
         }
 
         [HttpPost("reservations")]
@@ -289,21 +283,19 @@ namespace GatewayService.Controllers
             const string ratingService = "RatingService";
             const string libraryService = "LibraryService";
 
-            if (!_circuitBreaker.TryStartRequest(reservationService))
+            if (!_circuitBreaker.HasTimeOutPassed(reservationService))
             {
                 return StatusCode(503, "Reservation service is temporarily unavailable");
             }
 
-            if (!_circuitBreaker.TryStartRequest(ratingService))
+            if (!_circuitBreaker.HasTimeOutPassed(ratingService))
             {
-                _circuitBreaker.EndRequest(reservationService);
                 return StatusCode(503, "Rating service is temporarily unavailable");
             }
 
-            if (!_circuitBreaker.TryStartRequest(libraryService))
+            if (!_circuitBreaker.HasTimeOutPassed(libraryService))
             {
-                _circuitBreaker.EndRequest(reservationService);
-                _circuitBreaker.EndRequest(ratingService);
+
                 return StatusCode(503, "Library service is temporarily unavailable");
             }
 
@@ -314,7 +306,6 @@ namespace GatewayService.Controllers
                     return BadRequest("X-User-Name header is required");
                 }
 
-                // Оригинальный код метода
                 var url = "http://reservation:8080/Reservation/AllReservations";
                 var request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("X-User-Name", username.ToString());
@@ -323,7 +314,8 @@ namespace GatewayService.Controllers
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    return StatusCode((int)response.StatusCode, "Error fetching rating");
+                    _circuitBreaker.AddRequest(reservationService);
+                    return StatusCode(503, "Error fetching reservations");
                 }
 
                 var content = await response.Content.ReadAsStringAsync();
@@ -346,7 +338,8 @@ namespace GatewayService.Controllers
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    return StatusCode((int)response.StatusCode, "Error fetching rating");
+                    _circuitBreaker.AddRequest(ratingService); 
+                    return StatusCode(503, "Error fetching rating");
                 }
 
                 content = await response.Content.ReadAsStringAsync();
@@ -371,7 +364,8 @@ namespace GatewayService.Controllers
 
                 if (!respContent.IsSuccessStatusCode)
                 {
-                    return StatusCode((int)respContent.StatusCode, "Error creating reservation");
+                    _circuitBreaker.AddRequest(reservationService);
+                    return StatusCode(503, "Error creating reservation");
                 }
                 var responseContent = await respContent.Content.ReadAsStringAsync();
                 var reservationResponse = JsonSerializer.Deserialize<Reservation>(responseContent, options);
@@ -411,25 +405,23 @@ namespace GatewayService.Controllers
                     TillDate = reservationResponse.TillDate.ToString("yyyy-MM-dd"),
                     Rating = ratingResponse,
                 };
-
+                _circuitBreaker.Reset(reservationService);
+                _circuitBreaker.Reset(ratingService);
                 return Ok(ans);
             }
             catch (Exception ex)
             {
                 return StatusCode(500, ex.Message);
             }
-            finally
-            {
-                _circuitBreaker.EndRequest(reservationService);
-                _circuitBreaker.EndRequest(ratingService);
-                _circuitBreaker.EndRequest(libraryService);
-            }
+
         }
 
         [HttpPost("reservations/{reservationUid}/return")]
         public async Task<ActionResult> ReturnBook
             ([FromBody] ReturnBookRequest returnBookRequest, [FromRoute] Guid reservationUid)
         {
+            const string reservationService = "ReservationService";
+
             try
             {
 
@@ -456,7 +448,8 @@ namespace GatewayService.Controllers
 
                 if (!respContent.IsSuccessStatusCode)
                 {
-                    return StatusCode((int)respContent.StatusCode, await respContent.Content.ReadAsStringAsync());
+                    _circuitBreaker.AddRequest(reservationService);
+                    return StatusCode(503, await respContent.Content.ReadAsStringAsync());
                 }
                 var responseContent = await respContent.Content.ReadAsStringAsync();
                 var reservationResponse = JsonSerializer.Deserialize<Reservation>(responseContent, options);
@@ -502,7 +495,7 @@ namespace GatewayService.Controllers
                 var rrp = await _httpClient.SendAsync(re);
                 //var content = await response.Content.ReadAsStringAsync();
 
-
+                _circuitBreaker.Reset(reservationService);
                 return StatusCode(204, "Книга успешно возвращена");
 
             }
