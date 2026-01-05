@@ -39,7 +39,7 @@ jobs:
         env:
           VARIANT: v4
           SERVICE_NAME: rating
-          PORT_NUMBER: 800
+          PORT_NUMBER: 8050
 
       - uses: education/autograding@v1
         id: autograder
