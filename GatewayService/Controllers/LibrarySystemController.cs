@@ -1,11 +1,12 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using GatewayService.DTOs;
+using GatewayService.Models;
+using GatewayService.Services;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Primitives;
 using System.Net.Http;
+using System.Text;
 using System.Text.Json;
 using System.Web;
-using GatewayService.DTOs;
-using GatewayService.Models;
-using System.Text;
-using GatewayService.Services;
 
 namespace GatewayService.Controllers
 {
@@ -15,17 +16,17 @@ namespace GatewayService.Controllers
     {
         private readonly HttpClient _httpClient;
         private readonly ServiceCircuitBreaker _circuitBreaker;
-       // private readonly RabbitMQService // _rabbitMQService;
+        private readonly RequestQueueService  _requestQueueService;
 
         public LibrarySystemController(
             IHttpClientFactory httpClientFactory,
-            ServiceCircuitBreaker circuitBreaker
-            //RabbitMQService rabbitMQService
+            ServiceCircuitBreaker circuitBreaker,
+            RequestQueueService requestQueueService
             )
         {
             _httpClient = httpClientFactory.CreateClient();
             _circuitBreaker = circuitBreaker;
-            // _rabbitMQService = rabbitMQService;
+             _requestQueueService = requestQueueService;
 
         }
 
@@ -549,15 +550,16 @@ namespace GatewayService.Controllers
                 });
             }
         }
-
         [HttpPost("reservations/{reservationUid}/return")]
-        public async Task<ActionResult> ReturnBook
-            ([FromBody] ReturnBookRequest returnBookRequest, [FromRoute] Guid reservationUid)
+        public async Task<ActionResult> ReturnBook(
+            [FromBody] ReturnBookRequest returnBookRequest,
+            [FromRoute] Guid reservationUid)
         {
             const string reservationService = "ReservationService";
             const string ratingService = "RatingService";
             const string libraryService = "LibraryService";
 
+            // Проверки Circuit Breaker остаются
             if (!_circuitBreaker.HasTimeOutPassed(reservationService))
             {
                 return StatusCode(503, new ErrorResponse
@@ -591,23 +593,11 @@ namespace GatewayService.Controllers
                         Message = "X-User-Name header is required"
                     });
                 }
-                var options = new JsonSerializerOptions
-                {
-                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                    PropertyNameCaseInsensitive = true
-                };
 
-                var url = $"http://reservation:8080/Reservation/CloseReservation?resId={reservationUid.ToString()}";
-                var json = JsonSerializer.Serialize(returnBookRequest);
-                var reqContent = new StringContent(json, Encoding.UTF8, "application/json");
+                // Основная логика для ReservationService
+                var reservationResult = await ProcessReservationServiceAsync(reservationUid, username, returnBookRequest);
 
-                var requestMessage = new HttpRequestMessage(HttpMethod.Post, url);
-                requestMessage.Headers.Add("X-User-Name", username.ToString());
-                requestMessage.Content = reqContent;
-
-                var respContent = await _httpClient.SendAsync(requestMessage);
-
-                if (!respContent.IsSuccessStatusCode)
+                if (!reservationResult.Success)
                 {
                     _circuitBreaker.AddRequest(reservationService);
                     return StatusCode(503, new ErrorResponse
@@ -615,63 +605,290 @@ namespace GatewayService.Controllers
                         Message = "Bonus Service unavailable"
                     });
                 }
-                var responseContent = await respContent.Content.ReadAsStringAsync();
-                var reservationResponse = JsonSerializer.Deserialize<Reservation>(responseContent, options);
 
-                var bookId = reservationResponse.BookUid;
-                var deltaRating = 0;
-                try
-                {
-                    var bookUrl = $"http://library:8080/Library/GetBookConditionByUuid?bookId={bookId}";
-                    var bookRequest = new HttpRequestMessage(HttpMethod.Get, bookUrl);
-                    var bookResponse = await _httpClient.SendAsync(bookRequest);
+                var bookId = reservationResult.Data.BookUid;
 
-                    var bookContent = await bookResponse.Content.ReadAsStringAsync();
-                    var book = JsonSerializer.Deserialize<Book>(bookContent, options);
+                // Обработка Library Service через очередь - без деконструкции
+                var libraryResult = await ProcessLibraryServiceWithQueueAsync(
+                    bookId,
+                    returnBookRequest,
+                    reservationResult.Data,
+                    username);
 
-                    
-                    if (reservationResponse.Status == "RETURNED" && returnBookRequest.Condition == book.Condition)
-                    {
-                        deltaRating += 1;
-                    }
-                    if (reservationResponse.Status == "EXPIRED")
-                    {
-                        deltaRating -= 10;
-                    }
-                    if (returnBookRequest.Condition != book.Condition)
-                    {
-                        deltaRating -= 10;
-                        url = $"http://library:8080/Library/changeCondition?bookId={book.BookUid}condition={returnBookRequest.Condition}";
-                        var request = new HttpRequestMessage(HttpMethod.Get, url);
-                        var response = await _httpClient.SendAsync(request);
-                        var content = await response.Content.ReadAsStringAsync();
-                        var changeConditionresponse = JsonSerializer.Deserialize<string>(content, options);
-                    }
-                }
-                catch (Exception ex) 
-                {
+                var librarySuccess = libraryResult.Success;
+                var deltaRating = libraryResult.DeltaRating;
 
-                }
-                url = $"http://rating:8080/Rating/changeRating?delta={deltaRating}";
-                var re = new HttpRequestMessage(HttpMethod.Post, url);
-                re.Headers.Add("X-User-Name", username.ToString());
-                var rrp = await _httpClient.SendAsync(re);
+                // Обработка Rating Service через очередь (не блокирующая)
+                _ = ProcessRatingServiceWithQueueAsync(username, deltaRating);
 
+                // Сбрасываем Circuit Breaker
                 _circuitBreaker.Reset(reservationService);
                 _circuitBreaker.Reset(ratingService);
                 _circuitBreaker.Reset(libraryService);
+
+                // Возвращаем успех сразу, даже если фоновые задачи еще выполняются
                 return StatusCode(204);
             }
             catch (Exception ex)
             {
                 _circuitBreaker.AddRequest(reservationService);
-
                 return StatusCode(503, new ErrorResponse
                 {
                     Message = ex.Message
                 });
             }
         }
-    
+
+        private async Task<(bool Success, Reservation Data)> ProcessReservationServiceAsync(
+            Guid reservationUid, StringValues username, ReturnBookRequest returnBookRequest)
+        {
+            var options = new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                PropertyNameCaseInsensitive = true
+            };
+
+            var url = $"http://reservation:8080/Reservation/CloseReservation?resId={reservationUid.ToString()}";
+            var json = JsonSerializer.Serialize(returnBookRequest);
+            var reqContent = new StringContent(json, Encoding.UTF8, "application/json");
+
+            var requestMessage = new HttpRequestMessage(HttpMethod.Post, url);
+            requestMessage.Headers.Add("X-User-Name", username.ToString());
+            requestMessage.Content = reqContent;
+
+            var respContent = await _httpClient.SendAsync(requestMessage);
+
+            if (!respContent.IsSuccessStatusCode)
+            {
+                return (false, null);
+            }
+
+            var responseContent = await respContent.Content.ReadAsStringAsync();
+            var reservationResponse = JsonSerializer.Deserialize<Reservation>(responseContent, options);
+
+            return (true, reservationResponse);
+        }
+
+        private async Task<(bool Success, int DeltaRating)> ProcessLibraryServiceWithQueueAsync(
+            Guid bookId,
+            ReturnBookRequest returnBookRequest,
+            Reservation reservation,
+            StringValues username)
+        {
+            int deltaRating = 0;
+
+            try
+            {
+                // Прямая попытка выполнить запрос
+                var book = await GetBookConditionDirectAsync(bookId);
+
+                if (reservation.Status == "RETURNED" && returnBookRequest.Condition == book.Condition)
+                {
+                    deltaRating += 1;
+                }
+
+                if (reservation.Status == "EXPIRED")
+                {
+                    deltaRating -= 10;
+                }
+
+                if (returnBookRequest.Condition != book.Condition)
+                {
+                    deltaRating -= 10;
+
+                    // Прямая попытка изменить условие
+                    var success = await ChangeBookConditionDirectAsync(bookId, returnBookRequest.Condition);
+                    if (!success)
+                    {
+                        // Если не удалось, ставим в очередь
+                        await _requestQueueService.QueueRequestAsync(
+                            "LibraryService_ChangeCondition",
+                            async (ct) =>
+                            {
+                                await ChangeBookConditionWithRetryAsync(bookId, returnBookRequest.Condition, ct);
+                            });
+                    }
+                }
+
+                // Прямая попытка увеличить available_count
+                var updateSuccess = await IncreaseAvailableCountDirectAsync(bookId);
+                if (!updateSuccess)
+                {
+                    // Если не удалось, ставим в очередь
+                    await _requestQueueService.QueueRequestAsync(
+                        "LibraryService_IncreaseCount",
+                        async (ct) =>
+                        {
+                            await IncreaseAvailableCountWithRetryAsync(bookId, ct);
+                        });
+                }
+
+                return (true, deltaRating);
+            }
+            catch (Exception)
+            {
+                // Если все упало, ставим всю логику в очередь
+                await QueueFullLibraryLogicAsync(bookId, returnBookRequest, reservation, username);
+                return (false, deltaRating);
+            }
+        }
+
+        private async Task ProcessRatingServiceWithQueueAsync(StringValues username, int deltaRating)
+        {
+            try
+            {
+                // Прямая попытка
+                var success = await UpdateRatingDirectAsync(username, deltaRating);
+                if (!success)
+                {
+                    // Если не удалось, ставим в очередь
+                    await _requestQueueService.QueueRequestAsync(
+                        "RatingService_UpdateRating",
+                        async (ct) =>
+                        {
+                            await UpdateRatingWithRetryAsync(username, deltaRating, ct);
+                        });
+                }
+            }
+            catch (Exception)
+            {
+                // Ставим в очередь при любой ошибке
+                await _requestQueueService.QueueRequestAsync(
+                    "RatingService_UpdateRating",
+                    async (ct) =>
+                    {
+                        await UpdateRatingWithRetryAsync(username, deltaRating, ct);
+                    });
+            }
+        }
+
+        // Вспомогательные методы для прямых запросов
+        private async Task<Book> GetBookConditionDirectAsync(Guid bookId)
+        {
+            var options = new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                PropertyNameCaseInsensitive = true
+            };
+
+            var bookUrl = $"http://library:8080/Library/GetBookConditionByUuid?bookId={bookId}";
+            var bookRequest = new HttpRequestMessage(HttpMethod.Get, bookUrl);
+            var bookResponse = await _httpClient.SendAsync(bookRequest);
+
+            bookResponse.EnsureSuccessStatusCode();
+
+            var bookContent = await bookResponse.Content.ReadAsStringAsync();
+            return JsonSerializer.Deserialize<Book>(bookContent, options);
+        }
+
+        private async Task<bool> ChangeBookConditionDirectAsync(Guid bookId, string condition)
+        {
+            try
+            {
+                var url = $"http://library:8080/Library/changeCondition?bookId={bookId}&condition={condition}";
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                var response = await _httpClient.SendAsync(request);
+                return response.IsSuccessStatusCode;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private async Task<bool> IncreaseAvailableCountDirectAsync(Guid bookId)
+        {
+            try
+            {
+                var url = $"http://library:8080/Library/IncreaseAvailableCount?bookId={bookId}";
+                var request = new HttpRequestMessage(HttpMethod.Post, url);
+                var response = await _httpClient.SendAsync(request);
+                return response.IsSuccessStatusCode;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private async Task<bool> UpdateRatingDirectAsync(StringValues username, int deltaRating)
+        {
+            try
+            {
+                var url = $"http://rating:8080/Rating/changeRating?delta={deltaRating}";
+                var request = new HttpRequestMessage(HttpMethod.Post, url);
+                request.Headers.Add("X-User-Name", username.ToString());
+                var response = await _httpClient.SendAsync(request);
+                return response.IsSuccessStatusCode;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        // Методы для повторных попыток
+        private async Task ChangeBookConditionWithRetryAsync(Guid bookId, string condition, CancellationToken ct)
+        {
+            var url = $"http://library:8080/Library/changeCondition?bookId={bookId}&condition={condition}";
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            var response = await _httpClient.SendAsync(request, ct);
+            response.EnsureSuccessStatusCode();
+        }
+
+        private async Task IncreaseAvailableCountWithRetryAsync(Guid bookId, CancellationToken ct)
+        {
+            var url = $"http://library:8080/Library/IncreaseAvailableCount?bookId={bookId}";
+            var request = new HttpRequestMessage(HttpMethod.Post, url);
+            var response = await _httpClient.SendAsync(request, ct);
+            response.EnsureSuccessStatusCode();
+        }
+
+        private async Task UpdateRatingWithRetryAsync(StringValues username, int deltaRating, CancellationToken ct)
+        {
+            var url = $"http://rating:8080/Rating/changeRating?delta={deltaRating}";
+            var request = new HttpRequestMessage(HttpMethod.Post, url);
+            request.Headers.Add("X-User-Name", username.ToString());
+            var response = await _httpClient.SendAsync(request, ct);
+            response.EnsureSuccessStatusCode();
+        }
+
+        private async Task QueueFullLibraryLogicAsync(
+            Guid bookId,
+            ReturnBookRequest returnBookRequest,
+            Reservation reservation,
+            StringValues username)
+        {
+            await _requestQueueService.QueueRequestAsync(
+                "LibraryService_FullLogic",
+                async (ct) =>
+                {
+                    // Полная логика обработки Library Service
+                    var book = await GetBookConditionDirectAsync(bookId);
+
+                    var localDeltaRating = 0;
+                    if (reservation.Status == "RETURNED" && returnBookRequest.Condition == book.Condition)
+                    {
+                        localDeltaRating += 1;
+                    }
+
+                    if (reservation.Status == "EXPIRED")
+                    {
+                        localDeltaRating -= 10;
+                    }
+
+                    if (returnBookRequest.Condition != book.Condition)
+                    {
+                        localDeltaRating -= 10;
+                        await ChangeBookConditionWithRetryAsync(bookId, returnBookRequest.Condition, ct);
+                    }
+
+                    await IncreaseAvailableCountWithRetryAsync(bookId, ct);
+
+                    // Также обновляем рейтинг в рамках этой задачи
+                    await UpdateRatingWithRetryAsync(username, localDeltaRating, ct);
+                });
+        }
+
     }
 }
