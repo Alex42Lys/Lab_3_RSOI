@@ -58,17 +58,26 @@ jobs:
         if: always()  
         run: docker compose logs gateway
 
+      - name: Get Reservation logs  
+        if: always()
+        run: docker compose logs reservation
+
+      - name: Get Rating logs  
+        if: always()
+        run: docker compose logs rating
+
       - name: Get Library logs  
         if: always()
         run: docker compose logs library
 
-      - name: Get postgres logs  
+      - name: Get rabbitmq logs  
         if: always()
-        run: docker compose logs postgres
+        run: docker compose logs rabbitmq
 
       - name: Get all services logs
         if: always()
         run: docker compose logs
+
       - name: Stop containers
         if: always()
         continue-on-error: true

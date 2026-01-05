@@ -529,6 +529,9 @@ namespace GatewayService.Controllers
                 catch (HttpRequestException ex)
                 {
                     _circuitBreaker.AddRequest(libraryService);
+                    url = $"http://library:8080/Reservations/DeleteReservation?id={reservationResponse.ReservationUid.ToString()}";
+                    request = new HttpRequestMessage(HttpMethod.Get, url);
+                    response = await _httpClient.SendAsync(request);
                     return StatusCode(503, new ErrorResponse
                     {
                         Message = "Bonus Service unavailable"
