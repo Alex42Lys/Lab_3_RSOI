@@ -55,6 +55,7 @@ services:
       - ConnectionStrings__DefaultConnection=Server=postgres;Port=5432;Database=ratings;Username=postgres;Password=postgres;
 
   gateway:
+    restart: on-failure
     build:
       context: ./GatewayService
       dockerfile: Dockerfile
