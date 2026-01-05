@@ -289,23 +289,23 @@ namespace GatewayService.Controllers
             const string ratingService = "RatingService";
             const string libraryService = "LibraryService";
 
-            if (!_circuitBreaker.TryStartRequest(reservationService))
-            {
-                return StatusCode(503, "Reservation service is temporarily unavailable");
-            }
+            //if (!_circuitBreaker.TryStartRequest(reservationService))
+            //{
+            //    return StatusCode(503, "Reservation service is temporarily unavailable");
+            //}
 
-            if (!_circuitBreaker.TryStartRequest(ratingService))
-            {
-                _circuitBreaker.EndRequest(reservationService);
-                return StatusCode(503, "Rating service is temporarily unavailable");
-            }
+            //if (!_circuitBreaker.TryStartRequest(ratingService))
+            //{
+            //    _circuitBreaker.EndRequest(reservationService);
+            //    return StatusCode(503, "Rating service is temporarily unavailable");
+            //}
 
-            if (!_circuitBreaker.TryStartRequest(libraryService))
-            {
-                _circuitBreaker.EndRequest(reservationService);
-                _circuitBreaker.EndRequest(ratingService);
-                return StatusCode(503, "Library service is temporarily unavailable");
-            }
+            //if (!_circuitBreaker.TryStartRequest(libraryService))
+            //{
+            //    _circuitBreaker.EndRequest(reservationService);
+            //    _circuitBreaker.EndRequest(ratingService);
+            //    return StatusCode(503, "Library service is temporarily unavailable");
+            //}
 
             try
             {
@@ -433,10 +433,10 @@ namespace GatewayService.Controllers
         {
             const string reservationService = "ReservationService";
 
-            if (!_circuitBreaker.TryStartRequest(reservationService))
-            {
-                return StatusCode(503, "Reservation service is temporarily unavailable");
-            }
+            //if (!_circuitBreaker.TryStartRequest(reservationService))
+            //{
+            //    return StatusCode(503, "Reservation service is temporarily unavailable");
+            //}
 
             try
             {
