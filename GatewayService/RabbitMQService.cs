@@ -45,7 +45,6 @@ namespace GatewayService.Services
             catch (Exception ex)
             {
                 Console.WriteLine($"Ошибка при инициализации RabbitMQService: {ex.Message}");
-                throw;
             }
         }
 
@@ -67,7 +66,6 @@ namespace GatewayService.Services
             catch (Exception ex)
             {
                 Console.WriteLine($"Ошибка при отправке сообщения: {ex.Message}");
-                throw;
             }
         }
 
