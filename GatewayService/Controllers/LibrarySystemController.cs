@@ -15,16 +15,17 @@ namespace GatewayService.Controllers
     {
         private readonly HttpClient _httpClient;
         private readonly ServiceCircuitBreaker _circuitBreaker;
-        private readonly RabbitMQService _rabbitMQService;
+       // private readonly RabbitMQService // _rabbitMQService;
 
         public LibrarySystemController(
             IHttpClientFactory httpClientFactory,
-            ServiceCircuitBreaker circuitBreaker,
-            RabbitMQService rabbitMQService)
+            ServiceCircuitBreaker circuitBreaker
+            //RabbitMQService rabbitMQService
+            )
         {
             _httpClient = httpClientFactory.CreateClient();
             _circuitBreaker = circuitBreaker;
-            _rabbitMQService = rabbitMQService;
+            // _rabbitMQService = rabbitMQService;
 
         }
 
@@ -377,7 +378,7 @@ namespace GatewayService.Controllers
                     MessageId = Guid.NewGuid()
                 };
 
-                _rabbitMQService.SendMessage(queueMessage);
+                // _rabbitMQService.SendMessage(queueMessage);
 
                 return Ok(new
                 {
@@ -424,7 +425,7 @@ namespace GatewayService.Controllers
                             FailedAt = "ReservationCheck"
                         };
 
-                        _rabbitMQService.SendMessage(queueMessage);
+                        // _rabbitMQService.SendMessage(queueMessage);
 
                         return Ok(new
                         {
@@ -451,7 +452,7 @@ namespace GatewayService.Controllers
                         Error = ex.Message
                     };
 
-                    _rabbitMQService.SendMessage(queueMessage);
+                    // _rabbitMQService.SendMessage(queueMessage);
 
                     return Ok(new
                     {
@@ -492,7 +493,7 @@ namespace GatewayService.Controllers
                         FailedAt = "RatingCheck"
                     };
 
-                    _rabbitMQService.SendMessage(queueMessage);
+                    // _rabbitMQService.SendMessage(queueMessage);
 
                     return Ok(new
                     {
@@ -542,7 +543,7 @@ namespace GatewayService.Controllers
                             FailedAt = "CreateReservation"
                         };
 
-                        _rabbitMQService.SendMessage(queueMessage);
+                        // _rabbitMQService.SendMessage(queueMessage);
 
                         return Ok(new
                         {
@@ -571,7 +572,7 @@ namespace GatewayService.Controllers
                         Error = ex.Message
                     };
 
-                    _rabbitMQService.SendMessage(queueMessage);
+                    // _rabbitMQService.SendMessage(queueMessage);
 
                     return Ok(new
                     {
@@ -608,7 +609,7 @@ namespace GatewayService.Controllers
                             MessageId = Guid.NewGuid()
                         };
 
-                        _rabbitMQService.SendMessage(compensationMessage);
+                        // _rabbitMQService.SendMessage(compensationMessage);
                     }
 
                     var bookId = takeBookRequest.BookUid;
@@ -669,7 +670,7 @@ namespace GatewayService.Controllers
                         MessageId = Guid.NewGuid()
                     };
 
-                    _rabbitMQService.SendMessage(getDetailsMessage);
+                    // _rabbitMQService.SendMessage(getDetailsMessage);
                 }
 
                 _circuitBreaker.Reset(reservationService);
@@ -691,7 +692,7 @@ namespace GatewayService.Controllers
                     Error = ex.Message
                 };
 
-                _rabbitMQService.SendMessage(queueMessage);
+                // _rabbitMQService.SendMessage(queueMessage);
 
                 return Ok(new
                 {
@@ -732,7 +733,7 @@ namespace GatewayService.Controllers
                     MessageId = Guid.NewGuid()
                 };
 
-                _rabbitMQService.SendMessage(queueMessage);
+                // _rabbitMQService.SendMessage(queueMessage);
 
                 return NoContent(); // 204 No Content
             }
@@ -780,7 +781,7 @@ namespace GatewayService.Controllers
                         FailedAt = "CloseReservation"
                     };
 
-                    _rabbitMQService.SendMessage(queueMessage);
+                    // _rabbitMQService.SendMessage(queueMessage);
 
                     return NoContent(); // 204 No Content
                 }
@@ -811,7 +812,7 @@ namespace GatewayService.Controllers
                         MessageId = Guid.NewGuid()
                     };
 
-                    _rabbitMQService.SendMessage(queueMessage);
+                    // _rabbitMQService.SendMessage(queueMessage);
 
                     _circuitBreaker.Reset(reservationService);
                     _circuitBreaker.Reset(ratingService);
@@ -856,7 +857,7 @@ namespace GatewayService.Controllers
                             MessageId = Guid.NewGuid()
                         };
 
-                        _rabbitMQService.SendMessage(queueMessage);
+                        // _rabbitMQService.SendMessage(queueMessage);
                     }
                 }
 
@@ -880,7 +881,7 @@ namespace GatewayService.Controllers
                         MessageId = Guid.NewGuid()
                     };
 
-                    _rabbitMQService.SendMessage(queueMessage);
+                    // _rabbitMQService.SendMessage(queueMessage);
                 }
 
                 _circuitBreaker.Reset(reservationService);
@@ -907,7 +908,7 @@ namespace GatewayService.Controllers
                     Error = ex.Message
                 };
 
-                _rabbitMQService.SendMessage(queueMessage);
+                // _rabbitMQService.SendMessage(queueMessage);
 
                 return NoContent(); // 204 No Content
             }

@@ -15,8 +15,8 @@ builder.Services.Configure<RabbitMQOptions>(
     builder.Configuration.GetSection("RabbitMQ"));
 builder.Services.AddSingleton<ServiceCircuitBreaker>(sp =>
     new ServiceCircuitBreaker(5, 10));
-builder.Services.AddSingleton<RabbitMQService>();
-builder.Services.AddHostedService<ReservationQueueProcessor>();
+//builder.Services.AddSingleton<RabbitMQService>();
+//builder.Services.AddHostedService<ReservationQueueProcessor>();
 
 var app = builder.Build();
 
