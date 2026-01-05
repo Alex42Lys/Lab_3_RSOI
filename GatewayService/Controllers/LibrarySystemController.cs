@@ -666,7 +666,7 @@ namespace GatewayService.Controllers
             catch (Exception ex)
             {
                 _circuitBreaker.AddRequest(reservationService);
-                var factory = new ConnectionFactory { HostName = "localhost" };
+                var factory = new ConnectionFactory { HostName = "localhost", UserName="guest", Password ="guest" };
                 using var connection = await factory.CreateConnectionAsync();
                 using var channel = await connection.CreateChannelAsync();
 
