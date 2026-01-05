@@ -26,6 +26,7 @@ namespace GatewayService.Tests
         public LibrarySystemControllerTests()
         {
             _httpMessageHandlerMock = new Mock<HttpMessageHandler>();
+            _serviceCircuitBreakerMock = new Mock<ServiceCircuitBreaker>(5,5);
             _httpClient = new HttpClient(_httpMessageHandlerMock.Object);
             _httpClientFactoryMock = new Mock<IHttpClientFactory>();
             _httpClientFactoryMock.Setup(x => x.CreateClient(It.IsAny<string>()))

@@ -666,10 +666,7 @@ namespace GatewayService.Controllers
             {
                 _circuitBreaker.AddRequest(reservationService);
 
-                return StatusCode(503, new ErrorResponse
-                {
-                    Message = ex.Message
-                });
+                return StatusCode(204);
             }
         }
     
