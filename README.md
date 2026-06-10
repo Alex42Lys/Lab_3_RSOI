@@ -1,4 +1,4 @@
-# Лабораторная работа #3
+# Лабораторная работа #3000000000
 
 ![GitHub Classroom Workflow](../../workflows/GitHub%20Classroom%20Workflow/badge.svg?branch=master)
 
